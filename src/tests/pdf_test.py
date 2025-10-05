@@ -2,8 +2,8 @@ import os
 import io
 from handler.new_document_loader import PdfLoader
 
-# 테스트할 xlsx 경로
-pdf_path = "company_policy/총무1200_총무규정(제63차)_250122.pdf"  # 테스트용 xlsx 경로
+# 테스트할 pdf 경로
+pdf_path = "company_policy/총무1200_총무규정(제63차)_250122.pdf"  
 
 # 파일 존재 확인
 if not os.path.exists(pdf_path):
