@@ -1,0 +1,27 @@
+# 제외할 폴더
+company_policy/
+# src/tests/
+
+# Python 관련
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.ipynb_checkpoints
+
+# 환경설정 파일
+.env
+
+# 가상환경
+.venv/
+.env/
+venv/
+ENV/
+
+# VSCode 관련
+.vscode/
+
+# OS 및 기타 불필요한 파일
+.DS_Store
+Thumbs.db
