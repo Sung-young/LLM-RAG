@@ -67,7 +67,7 @@ def preprocessing(text):
 
 
 def split_texts(text):
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=50)
     text_chunks = text_splitter.split_text(text)
 
     return text_chunks
