@@ -72,6 +72,6 @@ def append_to_vectorstore(pdf_files: list[str], index_path: str = "faiss_index",
 
 if __name__ == "__main__":
     pdf_files = [
-        "tests/testfile/QnA_Dataset.xlsx",
+        "파일",
     ]
     append_to_vectorstore(pdf_files, index_path="tests/vectordb", batch_size=500)
