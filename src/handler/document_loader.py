@@ -41,7 +41,7 @@ from utils.loader_modules import (
     ocr_with_gpt,
     ocr_pdf_with_gpt,
 )
-from image_util import ImageUtil
+# from image_util import ImageUtil
 import logging
 
 logger = logging.getLogger(__name__)
@@ -211,7 +211,7 @@ class CustomDocumentLoader(BaseLoader):
 
                 # Document 생성
                 docs, doc_idx = to_documents(
-                    file_path, text_chunks, doc_idx, page_num, total_page
+                    file_name, file_path, text_chunks, doc_idx, page_num, total_page
                 )
                 new_documents.extend(docs)
 
@@ -284,7 +284,7 @@ class CustomDocumentLoader(BaseLoader):
                 for page_num, page_pdf_bytes in enumerate(page_pdfs, 1):
                     logger.info(f"페이지 {page_num}/{total_pages} 처리 중...")
                     try:
-                        page_text = await ocr_pdf_with_gpt(page_pdf_bytes)
+                        page_text = await ocr_with_gpt(page_pdf_bytes)
                         results.append((page_num, page_text, None))
                     except Exception as page_error:
                         results.append((page_num, None, page_error))
