@@ -1,0 +1,224 @@
+{
+  "timestamp": "2025-10-28T14:28:23.275710",
+  "total_vectors": 441,
+  "embedding_dimension": 1536,
+  "embedding_model": "text-embedding-3-small",
+  "test_queries": [
+    {
+      "query": "설비 인계 전 설비건설부서가 집계해야 하는 불량 내역",
+      "category": "기준",
+      "top_results": [
+        {
+          "rank": 1,
+          "index": 411,
+          "similarity_score": 0.5074422340091894,
+          "distance": 0.9706676602363586
+        },
+        {
+          "rank": 2,
+          "index": 440,
+          "similarity_score": 0.5052759502405518,
+          "distance": 0.9791165590286255
+        },
+        {
+          "rank": 3,
+          "index": 430,
+          "similarity_score": 0.5035144719606643,
+          "distance": 0.9860402345657349
+        },
+        {
+          "rank": 4,
+          "index": 431,
+          "similarity_score": 0.4902093219741732,
+          "distance": 1.0399448871612549
+        },
+        {
+          "rank": 5,
+          "index": 412,
+          "similarity_score": 0.4877781698224193,
+          "distance": 1.050112247467041
+        }
+      ]
+    },
+    {
+      "query": "장비를 넘기기 전에 건설 부서에서 해야 할 작업",
+      "category": "기준",
+      "top_results": [
+        {
+          "rank": 1,
+          "index": 430,
+          "similarity_score": 0.48592979530098007,
+          "distance": 1.057910442352295
+        },
+        {
+          "rank": 2,
+          "index": 409,
+          "similarity_score": 0.48574087891881035,
+          "distance": 1.0587108135223389
+        },
+        {
+          "rank": 3,
+          "index": 411,
+          "similarity_score": 0.4832359855447564,
+          "distance": 1.0693823099136353
+        },
+        {
+          "rank": 4,
+          "index": 414,
+          "similarity_score": 0.48098443060513524,
+          "distance": 1.0790693759918213
+        },
+        {
+          "rank": 5,
+          "index": 431,
+          "similarity_score": 0.4806532192836838,
+          "distance": 1.0805020332336426
+        }
+      ]
+    },
+    {
+      "query": "설비건설부서가 통계 및 집계할 불량 내역의 세부 조건과 원인 분석의 범위",
+      "category": "기준",
+      "top_results": [
+        {
+          "rank": 1,
+          "index": 430,
+          "similarity_score": 0.5166135125411343,
+          "distance": 0.935683012008667
+        },
+        {
+          "rank": 2,
+          "index": 412,
+          "similarity_score": 0.5125447038808577,
+          "distance": 0.9510493278503418
+        },
+        {
+          "rank": 3,
+          "index": 440,
+          "similarity_score": 0.5110932648968045,
+          "distance": 0.9565900564193726
+        },
+        {
+          "rank": 4,
+          "index": 122,
+          "similarity_score": 0.503806441840819,
+          "distance": 0.9848892688751221
+        },
+        {
+          "rank": 5,
+          "index": 203,
+          "similarity_score": 0.4993056773273916,
+          "distance": 1.0027811527252197
+        }
+      ]
+    },
+    {
+      "query": "미공개 중요정보의 보관",
+      "category": "사규",
+      "top_results": [
+        {
+          "rank": 1,
+          "index": 117,
+          "similarity_score": 0.45517161298024095,
+          "distance": 1.1969735622406006
+        },
+        {
+          "rank": 2,
+          "index": 146,
+          "similarity_score": 0.4527092859660039,
+          "distance": 1.208923101425171
+        },
+        {
+          "rank": 3,
+          "index": 116,
+          "similarity_score": 0.45269330837404653,
+          "distance": 1.209001064300537
+        },
+        {
+          "rank": 4,
+          "index": 50,
+          "similarity_score": 0.4496345322593414,
+          "distance": 1.224028468132019
+        },
+        {
+          "rank": 5,
+          "index": 65,
+          "similarity_score": 0.4472280375661384,
+          "distance": 1.2359957695007324
+        }
+      ]
+    },
+    {
+      "query": "가전배전전공 실기평가 중 부정행위 간주 사항은?",
+      "category": "절차서",
+      "top_results": [
+        {
+          "rank": 1,
+          "index": 297,
+          "similarity_score": 0.5598172197119325,
+          "distance": 0.7862973213195801
+        },
+        {
+          "rank": 2,
+          "index": 296,
+          "similarity_score": 0.5550828884875101,
+          "distance": 0.8015327453613281
+        },
+        {
+          "rank": 3,
+          "index": 295,
+          "similarity_score": 0.5455821923120436,
+          "distance": 0.8329043984413147
+        },
+        {
+          "rank": 4,
+          "index": 309,
+          "similarity_score": 0.5453245063214184,
+          "distance": 0.8337705135345459
+        },
+        {
+          "rank": 5,
+          "index": 304,
+          "similarity_score": 0.5440201197626537,
+          "distance": 0.8381673097610474
+        }
+      ]
+    },
+    {
+      "query": "퇴직자의 재취업 제한",
+      "category": "지침",
+      "top_results": [
+        {
+          "rank": 1,
+          "index": 370,
+          "similarity_score": 0.5343271726886117,
+          "distance": 0.8715125322341919
+        },
+        {
+          "rank": 2,
+          "index": 369,
+          "similarity_score": 0.5102339409378895,
+          "distance": 0.95988529920578
+        },
+        {
+          "rank": 3,
+          "index": 376,
+          "similarity_score": 0.49675963041583016,
+          "distance": 1.0130460262298584
+        },
+        {
+          "rank": 4,
+          "index": 364,
+          "similarity_score": 0.48719498362602215,
+          "distance": 1.0525662899017334
+        },
+        {
+          "rank": 5,
+          "index": 371,
+          "similarity_score": 0.4866188923690717,
+          "distance": 1.0549962520599365
+        }
+      ]
+    }
+  ]
+}
