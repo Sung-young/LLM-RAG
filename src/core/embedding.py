@@ -2,66 +2,90 @@ import os
 import io
 import logging
 from tqdm import tqdm
-from handler.document_loader import CustomDocumentLoader
+from src.handler.document_loader import CustomDocumentLoader
+from src.handler.new_document_loader import PdfLoader
 from langchain_openai import OpenAIEmbeddings
 from langchain_upstage import UpstageEmbeddings
 from langchain.vectorstores import FAISS
-from core import config
 
-# 로깅 설정
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# OpenAI API 키
-
-# embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-embeddings = UpstageEmbeddings(model="embedding-query")
+# Embedding 모델 설정 
+embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+# embeddings = UpstageEmbeddings(model="embedding-query")
 
 
-def append_to_vectorstore(pdf_files: list[str], index_path: str = "faiss_index", batch_size: int = 500):
-    """
-    기존 FAISS 인덱스에 새로운 문서를 추가하거나
-    인덱스가 없으면 새로 생성하여 저장합니다.
-    """
+def append_to_vectorstore(input_path: str, index_path: str = "faiss_index", batch_size: int = 500):
+    """폴더 내 파일을 벡터DB에 추가하되, 이미 임베딩된 파일은 건너뜀."""
     all_documents = []
 
-    logging.info("파일 로딩을 시작합니다...")
-    for pdf_path in tqdm(pdf_files, desc="PDF 파일 로딩 중"):
-        if not os.path.exists(pdf_path):
-            logging.warning(f"파일이 존재하지 않음: {pdf_path}")
-            continue
-        try:
-            with open(pdf_path, "rb") as f:
-                file_bytes = io.BytesIO(f.read())
-            loader = CustomDocumentLoader(file=file_bytes, file_path=pdf_path, file_name=pdf_path)
-            documents = loader.load()
-            all_documents.extend(documents)
-        except Exception as e:
-            logging.error(f"{pdf_path} 파일 처리 중 오류 발생: {e}")
-
-    if not all_documents:
-        logging.warning("로딩된 문서가 없습니다.")
+    # 폴더/파일 탐색
+    file_list = []
+    if os.path.isdir(input_path):
+        for root, _, files in os.walk(input_path):
+            for file in files:
+                if file.lower().endswith((".pdf", ".xlsx", ".xls", ".txt", ".csv", ".docx")):
+                    file_list.append(os.path.join(root, file))
+    elif os.path.isfile(input_path):
+        file_list.append(input_path)
+    else:
+        logging.error(f"유효하지 않은 경로입니다: {input_path}")
         return
 
-    logging.info(f"총 {len(all_documents)}개의 새로운 문서를 임베딩합니다...")
+    if not file_list:
+        logging.warning("처리할 파일이 없습니다.")
+        return
 
+    logging.info(f"총 {len(file_list)}개의 파일을 감지했습니다.")
+
+    # 기존 인덱스 로드 
+    existing_sources = set()
     os.makedirs(index_path, exist_ok=True)
     faiss_file = os.path.join(index_path, "index.faiss")
     pkl_file = os.path.join(index_path, "index.pkl")
-    
+
+    vectorstore = None
     if os.path.exists(faiss_file) and os.path.exists(pkl_file):
-        logging.info("기존 인덱스를 로드하여 문서를 추가합니다.")
+        logging.info("기존 인덱스를 로드합니다...")
         vectorstore = FAISS.load_local(index_path, embeddings, allow_dangerous_deserialization=True)
-        # 기존 인덱스에 추가할 때도 배치 처리
+        # 기존 문서들의 'source' 경로 추출
+        existing_sources = {doc.metadata.get("source") for doc in vectorstore.docstore._dict.values()}
+        logging.info(f"이미 임베딩된 파일 {len(existing_sources)}개를 확인했습니다.")
+
+    # 새로 추가할 파일만 필터링
+    new_files = [f for f in file_list if f not in existing_sources]
+    if not new_files:
+        logging.info("새로 추가할 파일이 없습니다. 모든 파일이 이미 임베딩되어 있습니다.")
+        return
+
+    logging.info(f"새로 임베딩할 파일 {len(new_files)}개: {new_files}")
+
+    # 새 파일 임베딩
+    for path in tqdm(new_files, desc="새 문서 로딩 중"):
+        try:
+            with open(path, "rb") as f:
+                file_bytes = io.BytesIO(f.read())
+            # loader = CustomDocumentLoader(file_path=path,file=file_bytes, file_name=path)
+            loader = PdfLoader(file_path=path,file=file_bytes, file_name=path)
+            docs = loader.load()
+            all_documents.extend(docs)
+        except Exception as e:
+            logging.error(f"{path} 처리 중 오류 발생: {e}")
+
+    if not all_documents:
+        logging.warning("새 문서가 없습니다.")
+        return
+
+    logging.info(f"총 {len(all_documents)}개의 새 문서를 임베딩 중...")
+
+    # 벡터스토어에 추가
+    if vectorstore:
         for i in tqdm(range(0, len(all_documents), batch_size), desc="문서 추가 중"):
             batch = all_documents[i:i + batch_size]
             vectorstore.add_documents(batch)
     else:
-        logging.info("기존 인덱스가 없어 새로 생성합니다.")
-        # 첫 번째 배치로 인덱스 생성
         first_batch = all_documents[:batch_size]
         vectorstore = FAISS.from_documents(first_batch, embeddings)
-        
-        # 나머지 배치들을 순차적으로 추가
         for i in tqdm(range(batch_size, len(all_documents), batch_size), desc="인덱스 생성 중"):
             batch = all_documents[i:i + batch_size]
             vectorstore.add_documents(batch)
@@ -71,7 +95,5 @@ def append_to_vectorstore(pdf_files: list[str], index_path: str = "faiss_index",
 
 
 if __name__ == "__main__":
-    pdf_files = [
-        "tests/testfile/QnA_Dataset.xlsx",
-    ]
-    append_to_vectorstore(pdf_files, index_path="tests/vectordb", batch_size=500)
+    input_folder = "data/지침/한전인의 윤리헌장(20191205) 제6차.pdf"
+    append_to_vectorstore(input_folder, index_path="vectordb", batch_size=500)
