@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 가상환경
+.venv/
+venv/
+ENV/
+env/
+etc/seungminENV_pip/
+
+# API 키 및 설정 (절대 커밋하지 말 것!)
+.env
+.env.local
+.env.*.local
+config/api_keys.txt
+*.env
+
+# 데이터
+data/data1/
+data/data2/
+data/*.pdf
+data/*.hwp
+data/**/*.pdf
+data/**/*.hwp
+etc/문서/
+
+# 벡터 DB는 유지 (용량이 크지 않으면)
+!data/vectorized1/
+!data/vectorized2/
+
+# 테스트 결과
+tests/results/*.json
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 로그
+*.log
+
