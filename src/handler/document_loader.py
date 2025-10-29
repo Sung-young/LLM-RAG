@@ -284,7 +284,7 @@ class CustomDocumentLoader(BaseLoader):
                 for page_num, page_pdf_bytes in enumerate(page_pdfs, 1):
                     logger.info(f"페이지 {page_num}/{total_pages} 처리 중...")
                     try:
-                        page_text = await ocr_with_gpt(page_pdf_bytes)
+                        page_text = await ocr_pdf_with_gpt(page_pdf_bytes)
                         results.append((page_num, page_text, None))
                     except Exception as page_error:
                         results.append((page_num, None, page_error))

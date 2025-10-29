@@ -19,10 +19,11 @@ from utils.loader_modules import to_documents, split_texts
 
 class PdfLoader(BaseLoader):
 
-    def __init__(self, file: Union[str, io.BytesIO], file_name: str,):
+    def __init__(self, file_path: str, file: Union[str, io.BytesIO], file_name: str,):
         """
         file_name이 None일 경우를 대비하여 항상 문자열 값을 갖도록 보장
         """
+        file_path = file_path
         self.file = file
         if file_name:
             self.file_name = file_name
