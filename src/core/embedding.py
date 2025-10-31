@@ -6,13 +6,16 @@ from src.handler.document_loader import CustomDocumentLoader
 from src.handler.new_document_loader import PdfLoader
 from langchain_openai import OpenAIEmbeddings
 from langchain_upstage import UpstageEmbeddings
+from sentence_transformers import SentenceTransformer
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import FAISS
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # Embedding 모델 설정 
-embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-# embeddings = UpstageEmbeddings(model="embedding-query")
+# embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+model_name = "dragonkue/bge-m3-ko"
+embeddings = HuggingFaceEmbeddings(model_name=model_name)
 
 
 def append_to_vectorstore(input_path: str, index_path: str = "faiss_index", batch_size: int = 500):
@@ -95,5 +98,5 @@ def append_to_vectorstore(input_path: str, index_path: str = "faiss_index", batc
 
 
 if __name__ == "__main__":
-    input_folder = "data/지침/한전인의 윤리헌장(20191205) 제6차.pdf"
-    append_to_vectorstore(input_folder, index_path="vectordb", batch_size=500)
+    input_folder = "data/사규"
+    append_to_vectorstore(input_folder, index_path="update_vectordb", batch_size=500)
