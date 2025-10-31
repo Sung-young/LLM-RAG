@@ -9,20 +9,23 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_upstage import UpstageEmbeddings
 from langchain_community.vectorstores import FAISS
-# [신규] BM25 리트리버 임포트
+# BM25 리트리버 임포트
 from langchain_community.retrievers import BM25Retriever 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.documents import Document
 from typing import List, Dict, Tuple
+from sentence_transformers import SentenceTransformer
+from langchain_community.embeddings import HuggingFaceEmbeddings
 
 # .env 파일에서 API 키를 로드합니다.
 load_dotenv()
 
 # --- 1. 기본 설정 ---
-FAISS_INDEX_PATH = "vectordb"
+FAISS_INDEX_PATH = "update_vectordb"
 EMBEDDING_MODEL = "embedding-query"
-LLM_MODEL = "gpt-4.1-mini"  
+LLM_MODEL = "gpt-5"  
+MODEL_NAME = "dragonkue/bge-m3-ko"
 #  검색 K값 설정
 FAISS_SEARCH_K = 10 # 검색 시 10개 가져오기
 BM25_SEARCH_K = 10  # 검색 시 10개 가져오기
@@ -36,7 +39,7 @@ def create_retrievers(index_path: str, embeddings_model_name: str):
     
     # 1. Faiss 벡터스토어 및 리트리버 로드
     # embeddings = UpstageEmbeddings(model=embeddings_model_name)
-    embeddings = OpenAIEmbeddings()
+    embeddings = HuggingFaceEmbeddings(model_name=MODEL_NAME)
     vectorstore = FAISS.load_local(
         index_path, 
         embeddings, 
@@ -161,6 +164,7 @@ PROMPT_TEMPLATE = """
 - 실제로 답변에 사용한 문서가 없다면 아무 말도 하지 말고 해당 섹션을 생략하세요。
 - 하나의 문서당 한 줄로 표기하기 위해 하나의 문서 뒤에 공백 두 개를 추가하세요。
 - 참고한 문서를 그대로 표기하세요 ** 절대로 가상의 문서를 만들지 마세요 **
+- 반드시 출처 표기 양식에 맞게 표기하세요
 
 <출처 표기 양식>
 **아래는 실제로 답변에 사용한 문서 목록입니다.**
@@ -189,7 +193,7 @@ def create_rag_chain(llm_model: str):
 async def main():
     print("애플리케이션을 초기화합니다. 잠시 기다려주세요...")
     
-    # [수정] 두 개의 리트리버를 모두 로드
+    # 두 개의 리트리버를 모두 로드
     faiss_retriever, bm25_retriever, faiss_vectorstore = create_retrievers(
         FAISS_INDEX_PATH, EMBEDDING_MODEL
     )
@@ -221,14 +225,12 @@ async def main():
             continue
 
         # [수정] 로그 메시지 변경
-        print(f"{len(retrieved_docs)}개의 하이브리드 청크를 찾았습니다.")
+        print(f"{len(retrieved_docs)}개의 청크를 찾았습니다.")
 
         print("\n--- [컨텍스트 상세 내용 ] ---")
         for i, doc in enumerate(retrieved_docs):
-            doc_id = doc.metadata.get('rows') or doc.metadata.get('page')
-            print(f"  ({i+1}) [Source: {doc.metadata.get('source')}, Row/ID: {doc_id}]")
-            print(f"      Q: {doc.page_content[:100]}...")
-            print(f"      A: {doc.metadata.get('answer', '')[:100]}...")
+            page = doc.metadata.get('rows') or doc.metadata.get('page')
+            print(f"  ({i+1}) [Source: {doc.metadata.get('source')}, page: {page}]")
         print("-------------------------------------------")
 
         # 2. 검색된 문서를 "질문: [page_content]\n답변: [metadata의 answer]" 형태로 재구성 (변경 없음)
