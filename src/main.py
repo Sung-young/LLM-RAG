@@ -105,9 +105,9 @@ PROMPT_TEMPLATE = """
 당신은 **엄격한 보안 및 정확도를 최우선**으로 하는 전력 관련 전문가입니다.
 사용자의 질문에 대해 신뢰할 수 있고 명확한 정보를 제공합니다.
 
-**📅 현재 날짜: **
+**📅 현재 날짜: {current_date}**
 - 모든 답변은 위 날짜를 기준으로 제공합니다.
-- "최신", "현재", "지금", "요즘" 등의 표현은  기준으로 해석하여 답변하세요.
+- "최신", "현재", "지금", "요즘" 등의 표현은 {current_date}기준으로 해석하여 답변하세요.
 - 시간이 경과함에 따라 변경될 수 있는 정보는 현재 날짜를 기준으로 최신 정보를 우선하여 답변하세요.
 
 
@@ -133,6 +133,14 @@ PROMPT_TEMPLATE = """
 - **도메인 외 질문**: 노래 추천, 영화 추천, 요리법, 게임, 연예인, 스포츠, 날씨, 여행지, 쇼핑 등 보험/헬스케어와 무관한 모든 주제
 - **장황한 잡담**: 일상적인 긴 대화, 개인적인 고민 상담 (전력 관련 제외)
 - **처리 방법**: 정중하게 거절하세요. 예시: "저는 전력공사 전문 챗봇이에요. 😊 회사 내 관련 질문을 해주시면 성심껏 도와드릴게요!"
+
+- **[참고할 문서]에 관련 정보가 있으면 반드시 답변에 포함시키세요. 문서 내용을 꼼꼼히 살펴보고 질문과 관련된 모든 정보를 찾아서 답변하세요.**
+- **[참고할 문서]가 비어있거나 관련 정보가 없는 경우 ([B유형] 질문에만 해당):**
+- **최신 정보 기반 답변:** {current_date} 기준으로 가장 최신의 정보를 우선하여 답변하세요. 구버전 정보보다는 신버전 정보를 우선적으로 참고하세요.
+- **최신 자료 우선 사용:** 문서 목록에서 가장 최신 날짜의 자료를 우선적으로 참고하여 답변하세요. 
+- 동일한 주제에 대해 여러 날짜의 문서가 있다면 **가장 최신 날짜의 문서 내용을 우선**하여 답변하세요.
+- 최신 문서에 있는 보험료, 약관 변경사항, 신상품 정보를 우선적으로 활용하세요.
+- 과거 문서와 최신 문서의 정보가 다를 경우, 반드시 **{current_date} 기준 최신 문서의 정보를 채택**하세요.
 
 
 **2. 답변 형식 및 어조**
@@ -189,21 +197,55 @@ def create_rag_chain(llm_model: str):
     rag_chain = prompt | llm | output_parser
     return rag_chain
 
-# --- 5. 메인 실행 부분 (수정) ---
-async def main():
-    print("애플리케이션을 초기화합니다. 잠시 기다려주세요...")
-    
-    # 두 개의 리트리버를 모두 로드
-    faiss_retriever, bm25_retriever, faiss_vectorstore = create_retrievers(
-        FAISS_INDEX_PATH, EMBEDDING_MODEL
+# --- 5. 모델 및 체인 로드---
+print(" RAG 리소스를 전역으로 로드합니다")
+FAISS_RETRIEVER, BM25_RETRIEVER, _ = create_retrievers(
+    FAISS_INDEX_PATH, MODEL_NAME # EMBEDDING_MODEL 변수 대신 실제 MODEL_NAME 사용
+)
+RAG_CHAIN = create_rag_chain(LLM_MODEL)
+print(" RAG 리소스 로드 완료.")
+
+
+# --- 6. 답변 생성 함수 ---
+async def get_rag_response(user_query: str) -> Tuple[str, List[Document]]:
+    """
+    사용자 쿼리를 받아 하이브리드 검색 및 RAG 답변을 반환합니다.
+    (이 함수를 api.py에서 import 합니다)
+    """
+    print(f"\n [ RAG 로직 실행 ] 질문: {user_query}")
+
+    # 1. 하이브리드 검색 (전역 로드된 리트리버 사용)
+    retrieved_docs = get_hybrid_retrieved_docs(
+        user_query, FAISS_RETRIEVER, BM25_RETRIEVER
+    )
+        
+    if not retrieved_docs:
+        print("  -> 관련된 문서를 찾지 못했습니다.")
+        return "관련된 문서를 찾지 못했습니다.", []
+
+    print(f"  -> {len(retrieved_docs)}개의 청크를 찾았습니다.")
+
+    # 2. 컨텍스트 재구성
+    context_text = "\n\n".join(
+        [f"질문: {doc.page_content}\n답변: {doc.metadata.get('answer', '')}" for doc in retrieved_docs]
     )
     
-    # --- [삭제] document_map 생성 로직 ---
-    # document_map = create_document_lookup_map(faiss_vectorstore) 
+    # 3. RAG 체인을 통해 최종 답변 생성 
+    print("  -> 답변 생성 시작...")
+    current_date = datetime.datetime.now().strftime("%Y년 %m월 %d일")
+    final_answer = await RAG_CHAIN.ainvoke({
+        "context": context_text,
+        "question": user_query,
+        "current_date": current_date
+    })
     
-    rag_chain = create_rag_chain(LLM_MODEL)
-    
-    print("\n초기화 완료. 이제 질문을 입력할 수 있습니다.")
+    print("  -> 답변 생성 완료.")
+    return final_answer, retrieved_docs
+
+# --- 7. 대화형 터미널 루프 ---
+async def main_interactive_loop():
+    print("\n--- [대화형 터미널 모드] ---")
+    print("초기화 완료. 이제 질문을 입력할 수 있습니다.")
     
     while True:
         user_query = input("\n\n 질문을 입력하세요 (종료하려면 'exit' 입력): ")
@@ -212,38 +254,16 @@ async def main():
             break
         
         start_time = time.time()
-        print(f"\n [ 검색 시작 ] ")
-        print(f" 질문: {user_query}")
             
-        # 1. [수정] 하이브리드 검색 (doc_map 인자 제거)
-        retrieved_docs = get_hybrid_retrieved_docs(
-            user_query, faiss_retriever, bm25_retriever
-        )
+        # 분리된 get_rag_response 함수 호출
+        final_answer, retrieved_docs = await get_rag_response(user_query)
             
-        if not retrieved_docs:
-            print("  -> 답변: 관련된 문서를 찾지 못했습니다.")
-            continue
-
-        # [수정] 로그 메시지 변경
-        print(f"{len(retrieved_docs)}개의 청크를 찾았습니다.")
-
         print("\n--- [컨텍스트 상세 내용 ] ---")
         for i, doc in enumerate(retrieved_docs):
             page = doc.metadata.get('rows') or doc.metadata.get('page')
             print(f"  ({i+1}) [Source: {doc.metadata.get('source')}, page: {page}]")
         print("-------------------------------------------")
 
-        # 2. 검색된 문서를 "질문: [page_content]\n답변: [metadata의 answer]" 형태로 재구성 (변경 없음)
-        context_text = "\n\n".join(
-            [f"질문: {doc.page_content}\n답변: {doc.metadata.get('answer', '')}" for doc in retrieved_docs]
-        )
-        
-        # 3. RAG 체인을 통해 최종 답변 생성
-        print("\n [ 답변 생성 시작 ] ")
-        final_answer = rag_chain.invoke({
-            "context": context_text,
-            "question": user_query
-        })
         print(" 최종 답변:")
         print(final_answer)
 
@@ -252,4 +272,4 @@ async def main():
         print(f"\n[총 질문 처리 시간: {elapsed:.2f}초]")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main_interactive_loop())
