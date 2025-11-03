@@ -6,7 +6,7 @@ import datetime
 from dotenv import load_dotenv
 
 # LangChain 및 Faiss 관련 라이브러리 임포트
-# from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 # aws 모델 임포트
 from langchain_aws import ChatBedrock
@@ -29,7 +29,8 @@ load_dotenv()
 # --- 1. 기본 설정 ---
 # 현재 파일의 디렉토리 기준으로 경로 설정
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # LLM-RAG 폴더
-FAISS_INDEX_PATH = os.path.join(BASE_DIR, "src/data/vectorized2/vectordb")  # OpenAI Embedding으로 생성된 벡터DB
+# FAISS_INDEX_PATH = "/data/sm_aws/LLM-RAG/src/data/vectorized2/vectordb"  # OpenAI Embedding으로 생성된 벡터DB
+FAISS_INDEX_PATH = os.path.join(BASE_DIR, "src/data/update_vectordb")  # BGE Embedding으로 생성된 벡터DB
 EMBEDDING_MODEL = "text-embedding-3-small"  # OpenAI Embedding 모델
 LLM_MODEL = "openai.gpt-oss-120b-1:0"  # Amazon Bedrock 모델 ID
 MODEL_NAME = "dragonkue/bge-m3-ko"  # 나중에 BGE로 전환할 때 사용
@@ -45,9 +46,11 @@ def create_retrievers(index_path: str, embeddings_model_name: str):
         raise FileNotFoundError(f"Faiss 인덱스 경로를 찾을 수 없습니다: {index_path}")
     
     # 1. Faiss 벡터스토어 및 리트리버 로드
-    # 현재: OpenAI Embeddings 사용 (vectordb가 OpenAI로 생성됨)
-    embeddings = OpenAIEmbeddings(model=EMBEDDING_MODEL)
-    # 나중에 BGE로 전환: embeddings = HuggingFaceEmbeddings(model_name=MODEL_NAME)
+    # BGE Embeddings 사용 (로컬)
+    embeddings = HuggingFaceEmbeddings(model_name=MODEL_NAME)# BGE Embeddings 사용 (로컬)
+    
+    
+    # embeddings = OpenAIEmbeddings(model=EMBEDDING_MODEL) # OpenAI Embeddings (API 필요)
     vectorstore = FAISS.load_local(
         index_path, 
         embeddings, 
@@ -198,12 +201,11 @@ PROMPT_TEMPLATE = """
 """
 
 def create_rag_chain(llm_model: str):
-    # llm = ChatOpenAI(model=llm_model)
     llm = ChatBedrock(
         model_id=llm_model,
         region_name=os.getenv("AWS_REGION", "us-east-1"),
         model_kwargs={
-            "temperature": 0.7,
+            "temperature": 0.3,
             "max_tokens": 2048
         }
     )
@@ -216,7 +218,8 @@ def create_rag_chain(llm_model: str):
 # --- 5. 모델 및 체인 로드---
 print(" RAG 리소스를 전역으로 로드합니다")
 FAISS_RETRIEVER, BM25_RETRIEVER, _ = create_retrievers(
-    FAISS_INDEX_PATH, EMBEDDING_MODEL  # OpenAI 임베딩 모델 사용
+    # FAISS_INDEX_PATH, EMBEDDING_MODEL  # OpenAI 임베딩 모델 사용
+    FAISS_INDEX_PATH, MODEL_NAME  # BGE 임베딩 모델 사용
 )
 RAG_CHAIN = create_rag_chain(LLM_MODEL)
 print(" RAG 리소스 로드 완료.")
@@ -254,6 +257,10 @@ async def get_rag_response(user_query: str) -> Tuple[str, List[Document]]:
         "question": user_query,
         "current_date": current_date
     })
+    
+    # <reasoning> 태그 제거 (Bedrock 모델이 추론 과정을 태그로 감싸서 반환)
+    import re
+    final_answer = re.sub(r'<reasoning>.*?</reasoning>', '', final_answer, flags=re.DOTALL).strip()
     
     print("  -> 답변 생성 완료.")
     return final_answer, retrieved_docs
