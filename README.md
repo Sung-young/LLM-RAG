@@ -16,3 +16,34 @@ src/
 │   └── loader_modules.py    
 └── main.py                 # retriever를 통한 답변 생성
 ```
+
+## 운영 가이드
+
+### vectordb 확인
+- vectordb를 디렉토리 최상의 루트에 경로 지정
+
+### 시작 방법(로컬 진행)
+```bash
+# 환경 설정
+pipenv shell
+pipenv install
+
+# 실행
+python -m src.main
+```
+
+### 시작 방법(FastAPI)
+```bash
+# 환경 설정
+pipenv shell
+pipenv install
+
+
+# 실행
+python main.py
+```
+
+### 모니터링 포인트
+- ✅ RAG 리소스 초기화: "RAG 리소스 로드 완료" 메시지 확인
+- ✅ RAG Retriever 진행 시 문서 및 답변 확인
+
