@@ -1,6 +1,7 @@
 import os
 import io
 import logging
+import torch
 from tqdm import tqdm
 from src.handler.document_loader import CustomDocumentLoader
 from src.handler.new_document_loader import PdfLoader
@@ -11,11 +12,15 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import FAISS
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+torch.mps.empty_cache()
 
 # Embedding 모델 설정 
 # embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 model_name = "dragonkue/bge-m3-ko"
-embeddings = HuggingFaceEmbeddings(model_name=model_name)
+embeddings = HuggingFaceEmbeddings(
+    model_name=model_name,
+    model_kwargs={"device": "cpu"}   
+)
 
 
 def append_to_vectorstore(input_path: str, index_path: str = "faiss_index", batch_size: int = 500):
@@ -84,12 +89,14 @@ def append_to_vectorstore(input_path: str, index_path: str = "faiss_index", batc
     # 벡터스토어에 추가
     if vectorstore:
         for i in tqdm(range(0, len(all_documents), batch_size), desc="문서 추가 중"):
+            torch.mps.empty_cache()
             batch = all_documents[i:i + batch_size]
             vectorstore.add_documents(batch)
     else:
         first_batch = all_documents[:batch_size]
         vectorstore = FAISS.from_documents(first_batch, embeddings)
         for i in tqdm(range(batch_size, len(all_documents), batch_size), desc="인덱스 생성 중"):
+            torch.mps.empty_cache()
             batch = all_documents[i:i + batch_size]
             vectorstore.add_documents(batch)
 
@@ -98,5 +105,5 @@ def append_to_vectorstore(input_path: str, index_path: str = "faiss_index", batc
 
 
 if __name__ == "__main__":
-    input_folder = "data/사규"
-    append_to_vectorstore(input_folder, index_path="update_vectordb", batch_size=500)
+    input_folder = "data37"  
+    append_to_vectorstore(input_folder, index_path="vectordb", batch_size=16)
