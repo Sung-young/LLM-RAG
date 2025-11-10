@@ -28,11 +28,11 @@ load_dotenv()
 # --- 1. 기본 설정 ---
 # 현재 파일의 디렉토리 기준으로 경로 설정
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) 
-# FAISS_INDEX_PATH = "/data/sm_aws/LLM-RAG/src/data/vectorized2/vectordb"  
 FAISS_INDEX_PATH = os.path.join(BASE_DIR, "vectordb")  
 EMBEDDING_MODEL = "text-embedding-3-small"  
 LLM_MODEL = "openai.gpt-oss-120b-1:0"  
 MODEL_NAME = "dragonkue/bge-m3-ko"  
+
 #  검색 K값 설정
 FAISS_SEARCH_K = 10 
 BM25_SEARCH_K = 10  
@@ -240,7 +240,7 @@ async def get_rag_response(user_query: str) -> Tuple[str, List[Document]]:
     """
     print(f"\n [ RAG 로직 실행 ] 질문: {user_query}")
 
-    # 1. 하이브리드 검색 (전역 로드된 리트리버 사용)
+    # 1. 하이브리드 검색 
     retrieved_docs = get_hybrid_retrieved_docs(
         user_query, FAISS_RETRIEVER, BM25_RETRIEVER
     )
