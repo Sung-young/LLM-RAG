@@ -12,7 +12,6 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_aws import ChatBedrock
 from langchain_openai import OpenAIEmbeddings
 
-from langchain_upstage import UpstageEmbeddings
 from langchain_community.vectorstores import FAISS
 # BM25 리트리버 임포트
 from langchain_community.retrievers import BM25Retriever 
@@ -28,17 +27,17 @@ load_dotenv()
 
 # --- 1. 기본 설정 ---
 # 현재 파일의 디렉토리 기준으로 경로 설정
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # LLM-RAG 폴더
-# FAISS_INDEX_PATH = "/data/sm_aws/LLM-RAG/src/data/vectorized2/vectordb"  # OpenAI Embedding으로 생성된 벡터DB
-FAISS_INDEX_PATH = os.path.join(BASE_DIR, "src/data/update_vectordb")  # BGE Embedding으로 생성된 벡터DB
-EMBEDDING_MODEL = "text-embedding-3-small"  # OpenAI Embedding 모델
-LLM_MODEL = "openai.gpt-oss-120b-1:0"  # Amazon Bedrock 모델 ID
-MODEL_NAME = "dragonkue/bge-m3-ko"  # 나중에 BGE로 전환할 때 사용
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) 
+# FAISS_INDEX_PATH = "/data/sm_aws/LLM-RAG/src/data/vectorized2/vectordb"  
+FAISS_INDEX_PATH = os.path.join(BASE_DIR, "vectordb")  
+EMBEDDING_MODEL = "text-embedding-3-small"  
+LLM_MODEL = "openai.gpt-oss-120b-1:0"  
+MODEL_NAME = "dragonkue/bge-m3-ko"  
 #  검색 K값 설정
-FAISS_SEARCH_K = 10 # 검색 시 10개 가져오기
-BM25_SEARCH_K = 10  # 검색 시 10개 가져오기
-FAISS_FINAL_K = 4 # 최종 4개 사용
-BM25_FINAL_K = 4  # 최종 4개 사용
+FAISS_SEARCH_K = 10 
+BM25_SEARCH_K = 10  
+FAISS_FINAL_K = 4 
+BM25_FINAL_K = 4  
 
 # --- 2. Faiss 및 BM25 Retriever 생성 ---
 def create_retrievers(index_path: str, embeddings_model_name: str):
@@ -67,6 +66,14 @@ def create_retrievers(index_path: str, embeddings_model_name: str):
     all_docs = list(vectorstore.docstore._dict.values())
     if not all_docs:
         raise ValueError("Faiss docstore에서 문서를 찾을 수 없어 BM25를 생성할 수 없습니다.")
+    new_docs = []
+    for doc in all_docs:
+        new_docs.append(Document(
+            page_content=doc.page_content,
+            metadata=doc.metadata,
+            id=str(doc.metadata.get("id", "")) 
+        ))
+    all_docs = new_docs
 
     bm25_retriever = BM25Retriever.from_documents(all_docs)
     bm25_retriever.k = BM25_SEARCH_K # [수정] k=10
@@ -81,18 +88,18 @@ def get_hybrid_retrieved_docs(
     bm25_retriever
 ) -> List[Document]:
     
-    # 1. BM25 (키워드, 10개) 및 Faiss (의미, 10개) 검색 동시 실행
+    # 1. BM25 및 Faiss검색 동시 실행
     bm25_docs = bm25_retriever.invoke(query)
     faiss_docs = faiss_retriever.invoke(query)
     
-    # 2. [수정] 각각 상위 4개씩 선택하여 결과 병합 (총 8개)
+    # 2. 각각 상위 4개씩 선택하여 결과 병합 
     initial_docs = bm25_docs[:BM25_FINAL_K] + faiss_docs[:FAISS_FINAL_K]
     
-    # 3. [수정] "주변 청크" 로직 대신 "중복 제거" 로직만 수행
+    # 3. "주변 청크" 로직 대신 "중복 제거" 로직만 수행
     final_docs_map = {} # 딕셔너리를 사용하여 (source, page) 기준으로 중복 제거
     for doc in initial_docs:
         source = doc.metadata.get("source")
-        # 'rows' 메타데이터를 고유 ID로 사용 (없으면 'page' 사용)
+        # 'rows' 메타데이터를 고유 ID로 사용 
         doc_id = doc.metadata.get("rows") or doc.metadata.get("page")
         page_str = str(doc_id)
 
@@ -258,7 +265,7 @@ async def get_rag_response(user_query: str) -> Tuple[str, List[Document]]:
         "current_date": current_date
     })
     
-    # <reasoning> 태그 제거 (Bedrock 모델이 추론 과정을 태그로 감싸서 반환)
+    # <reasoning> 태그 제거 
     import re
     final_answer = re.sub(r'<reasoning>.*?</reasoning>', '', final_answer, flags=re.DOTALL).strip()
     

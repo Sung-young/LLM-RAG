@@ -23,7 +23,7 @@ class PdfLoader(BaseLoader):
         """
         file_name이 None일 경우를 대비하여 항상 문자열 값을 갖도록 보장
         """
-        file_path = file_path
+        self.file_path = file_path
         self.file = file
         if file_name:
             self.file_name = file_name
@@ -147,15 +147,27 @@ class PdfLoader(BaseLoader):
             page_content_items.append((y_pos, 'text', full_text))
             
         return page_content_items
+    
+    def _is_two_column(self, page):
+        center_x = page.width / 2
+        words = page.extract_words()
+        if not words:
+            return False
+
+        left = any(w["x1"] < center_x for w in words)
+        right = any(w["x0"] > center_x for w in words)
+        crossing = sum(1 for w in words if w["x0"] < center_x and w["x1"] > center_x)
+        ratio = crossing / len(words)
+
+        return (ratio < 0.05) and left and right
 
     def _load_hybrid(self, file: Union[str, io.BytesIO]) -> List[Document]:
-        """
-        페이지 레이아웃을 먼저 감지하고, 그에 맞는 최적의 라이브러리를 선택하여 처리하는 메인 로더.
-        """
         tmp_path = None
         if isinstance(file, io.BytesIO):
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                file.seek(0); tmp.write(file.read()); tmp_path = tmp.name
+                file.seek(0)
+                tmp.write(file.read())
+                tmp_path = tmp.name
             file_path = tmp_path
         else:
             file_path = os.path.abspath(file)
@@ -164,86 +176,115 @@ class PdfLoader(BaseLoader):
         doc_idx = 0
 
         try:
-            # Camelot은 1단 페이지에서만 사용되므로, 미리 한 번만 호출
-            camelot_tables = camelot.read_pdf(file_path, pages="all", flavor="stream")
-            tables_by_page = {
-                i: [t for t in camelot_tables if t.page == i]
-                for i in range(1, len(pdfplumber.open(file_path).pages) + 1)
-            }
+            try:
+                pdf = pdfplumber.open(file_path)
+            except Exception as e:
+                print(f"[ERROR] pdfplumber.open() 실패 → 파일 전체 건너뜀: {e}")
+                return []
 
-            with pdfplumber.open(file_path) as pdf:
-                total_pages = len(pdf.pages)
-                
-                for i, page in enumerate(pdf.pages, 1):
-                    # 레이아웃 감지 로직 
-                    center_x = page.width / 2
-                    
-                    table_spans_center = False
-                    for table in page.find_tables():
-                        if table.bbox[0] < center_x and table.bbox[2] > center_x:
-                            table_spans_center = True
-                            break
+            total_pages = len(pdf.pages)
 
-                    words_for_layout = page.extract_words()
-                    crossing_words = 0
-                    for word in words_for_layout:
-                        if word['x0'] < center_x and word['x1'] > center_x:
-                            crossing_words += 1
-                    
-                    crossing_ratio = (crossing_words / len(words_for_layout)) if words_for_layout else 0
-                    
-                    left_text_exists = any(w['x1'] < center_x for w in words_for_layout)
-                    right_text_exists = any(w['x0'] > center_x for w in words_for_layout)
-                    
-                    is_two_column = (crossing_ratio < 0.05) and left_text_exists and right_text_exists and not table_spans_center
+            for i in range(1, total_pages + 1):
+                # 페이지 접근 자체 보호
+                try:
+                    page = pdf.pages[i - 1]
+                except Exception as e:
+                    print(f"[ERROR] 페이지 로딩 실패 (p{i}) → 건너뜀: {e}")
+                    continue
 
-                    # --- 레이아웃에 따른 처리 분기 ---
+                # 페이지 처리 전체 
+                try:
                     page_content_items = []
                     extract_mode_suffix = ""
-                    if is_two_column:
-                        # 2단이면 pdfplumber 전문가 호출
-                        page_content_items = self._two_column(page)
-                        extract_mode_suffix = "2col"
-                    else:
-                        # 1단이면 Camelot + Plumber 하이브리드 전문가 호출
-                        tables_on_page = tables_by_page.get(i, [])
-                        page_content_items = self._single_column(page, tables_on_page)
-                        extract_mode_suffix = "1col"
 
-                    # 공통 후처리: 정렬 및 Document 생성 
-                    page_content_items.sort(key=lambda item: item[0])
-                    for _, item_type, content in page_content_items:
-                        text_chunks = []
-                        page_number = i
-                        
-                        if item_type == 'text':
-                            if content and content.strip():
-                                text_chunks = split_texts(content)
-                        elif item_type == 'table':
-                            df: pd.DataFrame = content.df.copy()
-                            df = df.fillna("").map(lambda x: " ".join(str(x).split()))
-                            table_text = df.to_string(index=False, header=False)
-                            if table_text.strip():
-                                text_chunks = split_texts(table_text) 
-                            page_number = content.page
+                    #  시도 자체 보호
+                    try:
+                        tables_on_page = camelot.read_pdf(
+                            file_path,
+                            pages=str(i),
+                            flavor="stream",
+                            suppress_stdout=True
+                        )
+                    except Exception:
+                        tables_on_page = []
 
-                        if not text_chunks:
+                    # 테이블 없는 경우 fallback
+                    if not tables_on_page or len(tables_on_page) == 0:
+                        try:
+                            if self._is_two_column(page):
+                                page_content_items = self._two_column(page)
+                            else:
+                                page_content_items = [(0, "text", page.extract_text())]
+                            extract_mode_suffix = "plumber_only"
+
+                        except Exception as e:
+                            print(f"[ERROR] plumber fallback 실패 (p{i}) → 건너뜀: {e}")
                             continue
 
-                        new_docs, doc_idx = to_documents(
-                            file_path=self.file_name, 
-                            file_name=self.file_name,
-                            text_chunks=text_chunks, 
-                            doc_idx=doc_idx,
-                            page_num=page_number, 
-                            total_pages=total_pages
-                        )
-                        
-                        for doc in new_docs:
-                            doc.metadata.update({"extract_mode": f"{item_type}_{extract_mode_suffix}"})
-                        all_docs.extend(new_docs)
+                    else:
+                        # 테이블 + 텍스트 혼합 처리
+                        try:
+                            is_two_col = self._is_two_column(page)
+                            if is_two_col:
+                                page_content_items = self._two_column(page)
+                                extract_mode_suffix = "2col"
+                            else:
+                                page_content_items = self._single_column(page, tables_on_page)
+                                extract_mode_suffix = "1col"
+                        except Exception as e:
+                            print(f"[ERROR] table/text hybrid 처리 실패 (p{i}) → 건너뜀: {e}")
+                            continue
+
+                    try:
+                        page_content_items.sort(key=lambda item: item[0])
+                    except Exception:
+                        pass
+
+                    # Document 생성
+                    for _, item_type, content in page_content_items:
+                        try:
+                            text_chunks = []
+                            page_number = i
+
+                            if item_type == "text":
+                                if content and content.strip():
+                                    text_chunks = split_texts(content)
+
+                            elif item_type == "table":
+                                df: pd.DataFrame = content.df.copy()
+                                df = df.fillna("").map(lambda x: " ".join(str(x).split()))
+                                table_text = df.to_string(index=False, header=False)
+                                if table_text.strip():
+                                    text_chunks = split_texts(table_text)
+                                page_number = content.page
+
+                            if not text_chunks:
+                                continue
+
+                            new_docs, doc_idx = to_documents(
+                                file_path=self.file_name,
+                                file_name=self.file_name,
+                                text_chunks=text_chunks,
+                                doc_idx=doc_idx,
+                                page_num=page_number,
+                                total_pages=total_pages
+                            )
+
+                            for doc in new_docs:
+                                doc.metadata.update({"extract_mode": f"{item_type}_{extract_mode_suffix}"})
+
+                            all_docs.extend(new_docs)
+
+                        except Exception as e:
+                            print(f"[ERROR] Document 생성 실패: {e}")
+                            continue
+
+                except Exception as e:
+                    print(f"[ERROR] 페이지 전체 처리 실패 (p{i}) → 건너뜀: {e}")
+                    continue
+
         finally:
             if tmp_path and os.path.exists(tmp_path):
                 os.remove(tmp_path)
-        
+
         return all_docs

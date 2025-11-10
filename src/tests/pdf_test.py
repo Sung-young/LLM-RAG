@@ -4,7 +4,7 @@ from src.handler.document_loader import CustomDocumentLoader
 from src.handler.new_document_loader import PdfLoader
 
 # 테스트할 xlsx 경로
-pdf_path = "company_policy/2column.pdf"  # 테스트용 xlsx 경로
+pdf_path = "migration/H1-해외-기준-0004_05_250925 제13차 필리핀 해외법인 운영내칙 개정 대비표.pdf"  
 
 # 파일 존재 확인
 if not os.path.exists(pdf_path):
