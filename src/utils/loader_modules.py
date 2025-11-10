@@ -76,17 +76,28 @@ def split_texts(text):
 def to_documents(file_name, file_path, text_chunks, doc_idx=0, page_num=1, total_pages=1):
     documents = []
     
-
+    # 1. source: file_path (전체 경로)에서 파일명만 추출
+    base_filename = os.path.basename(file_path)
+    
+    # 2. category: 추출한 파일명(base_filename)을 기반으로 카테고리 추출
+    category = "일반" # 기본값
+    parts = base_filename.split('-')
+    
+    if len(parts) >= 3:
+        # 두 번째와 세 번째 조각을 합쳐 카테고리로 사용
+        category = f"{parts[1]}-{parts[2]}" # 예: "안전-절차"
+        
     for text_chunk in text_chunks:
         documents.append(
             Document(
-                page_content=file_name + "\n\n" + text_chunk,  # 본문만!
+                page_content=base_filename + "\n\n" + text_chunk,
                 metadata={
-                    "source": unicodedata.normalize('NFC', file_path.split("/")[-1]),
+                    "source": unicodedata.normalize('NFC', base_filename),
                     "text_length": len(text_chunk),
                     "id": doc_idx,
                     "page": page_num,
                     "total_pages": total_pages,
+                    "category": category, 
                 },
             )
         )
