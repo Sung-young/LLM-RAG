@@ -132,7 +132,7 @@ PROMPT_TEMPLATE = """
 - **이모지를 적극적으로 활용**해서 답변을 더욱 친근하고 따뜻하게 만들어 주세요. (예: 설명 중간중간, 강조할 부분, 안내 등) 😊
 - **문단이 나뉘거나 주제가 바뀌는 경우, 각 부분에 명확한 소제목(제목, 볼드체, 이모지 등)을 붙여서 답변을 구조적으로 안내해 주세요.**
 - 마크다운 문법에 맞게 개행을 꼭 해주세요. 형식을 일관적으로 맞춰주세요.
-- 답변은 최대한 길게 작성해주세요. 
+- ** 답변은 반드시 최대한 길게 작성해주세요.**
 - 질문에 대해 여러 문서에 답변이 있을 수 있습니다. 반드시 여러 문서에 질문에 대해 답변할 부분이 있으면 해당 문서도 출처로 남기세요.
 
 **📅 현재 날짜: {current_date}**
@@ -219,7 +219,6 @@ def create_rag_chain(llm_model: str):
         region_name=os.getenv("AWS_REGION", "us-east-1"),
         model_kwargs={
             "temperature": 0.3,
-            "max_tokens": 2048
         }
     )
     prompt = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
