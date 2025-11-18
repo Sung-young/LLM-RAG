@@ -36,10 +36,10 @@ LLM_MODEL = "openai.gpt-oss-120b-1:0"
 MODEL_NAME = "dragonkue/bge-m3-ko"  
 
 #  검색 K값 설정
-FAISS_SEARCH_K = 10 
-BM25_SEARCH_K = 10  
-FAISS_FINAL_K = 4 
-BM25_FINAL_K = 4  
+FAISS_SEARCH_K = 15
+BM25_SEARCH_K = 15  
+FAISS_FINAL_K = 6 
+BM25_FINAL_K = 6  
 
 # Rolling Summary 설정
 SUMMARY_TRIGGER_COUNT = 5  # 메시지 5개 이상 누적 시 요약
