@@ -26,3 +26,10 @@ ENV/
 # OS 및 기타 불필요한 파일
 .DS_Store
 Thumbs.db
+._*
+
+# Redis 데이터베이스 덤프
+dump.rdb
+
+# 벡터 데이터베이스
+vectordb_*/

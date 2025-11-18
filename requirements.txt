@@ -1,0 +1,11 @@
+pipenv install langchain-huggingface
+pipenv install langchain-openai
+pipenv install langchain-aws
+pipenv install langchain-community
+pipenv install sentence-transformers
+pipenv install faiss-cpu
+pipenv install rank-bm25
+pipenv install uvicorn
+pipenv install fastapi
+pipenv install dotenv
+pipenv install redis

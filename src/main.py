@@ -5,6 +5,8 @@ import asyncio
 import datetime
 import re
 from dotenv import load_dotenv
+import redis
+from typing import List, Dict, Tuple, Optional
 
 # LangChain 및 Faiss 관련 라이브러리 임포트
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -19,7 +21,6 @@ from langchain_community.retrievers import BM25Retriever
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.documents import Document
-from typing import List, Dict, Tuple
 from sentence_transformers import SentenceTransformer
 from langchain_community.embeddings import HuggingFaceEmbeddings
 
@@ -29,7 +30,7 @@ load_dotenv()
 # --- 1. 기본 설정 ---
 # 현재 파일의 디렉토리 기준으로 경로 설정
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) 
-FAISS_INDEX_PATH = os.path.join(BASE_DIR, "vectordb")  
+FAISS_INDEX_PATH = os.path.join(BASE_DIR, "vectordb_1109")  
 EMBEDDING_MODEL = "text-embedding-3-small"  
 LLM_MODEL = "openai.gpt-oss-120b-1:0"  
 MODEL_NAME = "dragonkue/bge-m3-ko"  
@@ -40,7 +41,107 @@ BM25_SEARCH_K = 10
 FAISS_FINAL_K = 4 
 BM25_FINAL_K = 4  
 
-# --- 2. Faiss 및 BM25 Retriever 생성 ---
+# Rolling Summary 설정
+SUMMARY_TRIGGER_COUNT = 5  # 메시지 5개 이상 누적 시 요약
+KEEP_RECENT_MESSAGES = 4    # 최근 4개 메시지는 원문 유지 (Q&A 2쌍)
+
+# --- 2. Redis 연결 및 대화 관리 클래스 ---
+class ConversationManager:
+    """Redis를 활용한 대화 히스토리 관리"""
+    
+    def __init__(self, redis_host: str = "localhost", redis_port: int = 6379, redis_db: int = 0):
+        try:
+            self.redis_client = redis.Redis(
+                host=redis_host,
+                port=redis_port,
+                db=redis_db,
+                decode_responses=True,
+                socket_timeout=5,
+                socket_connect_timeout=5
+            )
+            # Redis 연결 테스트
+            self.redis_client.ping()
+            print(f"Redis 연결 성공 ({redis_host}:{redis_port})")
+        except (redis.ConnectionError, redis.TimeoutError) as e:
+            print(f" Redis 연결 실패: {e}")
+            print("   -> 대화 히스토리 기능이 비활성화됩니다. (메모리 모드로 동작)")
+            self.redis_client = None
+            self.memory_storage = {}  # Redis 연결 실패 시 메모리 사용
+    
+    def add_message(self, session_id: str, role: str, content: str):
+        """대화 메시지 추가 (role: 'user' or 'assistant')"""
+        message = {
+            "role": role,
+            "content": content,
+            "timestamp": datetime.datetime.now().isoformat()
+        }
+        
+        if self.redis_client:
+            key = f"conversation:{session_id}" # Redis에 저장
+            self.redis_client.rpush(key, json.dumps(message, ensure_ascii=False))
+            # TTL 설정
+            self.redis_client.expire(key, 7 * 24 * 60 * 60)
+        else:
+            # 메모리에 저장
+            if session_id not in self.memory_storage:
+                self.memory_storage[session_id] = []
+            self.memory_storage[session_id].append(message)
+    
+    def get_messages(self, session_id: str) -> List[Dict]:
+        """세션의 모든 메시지 조회"""
+        if self.redis_client:
+            key = f"conversation:{session_id}"
+            messages = self.redis_client.lrange(key, 0, -1)
+            return [json.loads(msg) for msg in messages]
+        else:
+            return self.memory_storage.get(session_id, [])
+    
+    def get_message_count(self, session_id: str) -> int:
+        """세션의 메시지 개수"""
+        if self.redis_client:
+            key = f"conversation:{session_id}"
+            return self.redis_client.llen(key)
+        else:
+            return len(self.memory_storage.get(session_id, []))
+    
+    def set_summary(self, session_id: str, summary: str):
+        """대화 요약본 저장"""
+        if self.redis_client:
+            key = f"summary:{session_id}"
+            self.redis_client.set(key, summary)
+            self.redis_client.expire(key, 7 * 24 * 60 * 60)
+        else:
+            summary_key = f"summary_{session_id}"
+            self.memory_storage[summary_key] = summary
+    
+    def get_summary(self, session_id: str) -> Optional[str]:
+        """대화 요약본 조회"""
+        if self.redis_client:
+            key = f"summary:{session_id}"
+            return self.redis_client.get(key)
+        else:
+            summary_key = f"summary_{session_id}"
+            return self.memory_storage.get(summary_key)
+    
+    def trim_old_messages(self, session_id: str, keep_count: int):
+        """오래된 메시지 삭제 (최근 keep_count개만 유지)"""
+        if self.redis_client:
+            key = f"conversation:{session_id}"
+            # 오래된 메시지 삭제
+            self.redis_client.ltrim(key, -keep_count, -1)
+        else:
+            if session_id in self.memory_storage:
+                self.memory_storage[session_id] = self.memory_storage[session_id][-keep_count:]
+    
+    def clear_session(self, session_id: str):
+        """세션 전체 삭제"""
+        if self.redis_client:
+            self.redis_client.delete(f"conversation:{session_id}", f"summary:{session_id}")
+        else:
+            self.memory_storage.pop(session_id, None)
+            self.memory_storage.pop(f"summary_{session_id}", None)
+
+# --- 3. Faiss 및 BM25 Retriever 생성 ---
 def create_retrievers(index_path: str, embeddings_model_name: str):
     if not os.path.exists(index_path):
         raise FileNotFoundError(f"Faiss 인덱스 경로를 찾을 수 없습니다: {index_path}")
@@ -120,11 +221,73 @@ def get_hybrid_retrieved_docs(
 
 current_date = datetime.datetime.now().strftime("%Y년 %m월 %d일")
 
+# --- 4. 대화 요약 함수 ---
+async def summarize_conversation(messages: List[Dict], llm) -> str:
+    """
+    대화 히스토리를 LLM을 활용해 요약합니다.
+    """
+    # 대화 내용을 텍스트로 변환
+    conversation_text = ""
+    for msg in messages:
+        role = "사용자" if msg["role"] == "user" else "AI"
+        conversation_text += f"{role}: {msg['content']}\n\n"
+    
+    summary_prompt = f"""아래는 한국전력공사에 근무하는 사용자와 AI 챗봇 간의 대화 내용입니다.
+이 대화의 핵심 내용을 간결하게 요약해주세요.
 
-# --- 4. RAG 체인 구성  ---
+**요약 규칙:**
+1. 사용자가 무엇을 질문했는지 (주제와 핵심 키워드)
+2. AI가 어떤 답변을 제공했는지 (핵심 정보만)
+3. 2-3문장으로 간결하게 작성
+4. 이후 대화에서 참고할 수 있도록 맥락 유지
+
+**대화 내용:**
+{conversation_text}
+
+**요약:**"""
+
+    summary = await llm.ainvoke(summary_prompt)
+    
+    # StrOutputParser 적용 (문자열 추출)
+    if hasattr(summary, 'content'):
+        return summary.content.strip()
+    return str(summary).strip()
+
+def get_conversation_context(
+    conversation_manager: ConversationManager, 
+    session_id: str
+) -> str:
+    """
+    Rolling Summary 방식으로 대화 맥락을 구성합니다.
+    - 요약본 (있다면) + 최근 N개 대화
+    """
+    messages = conversation_manager.get_messages(session_id)
+    summary = conversation_manager.get_summary(session_id)
+    
+    context_parts = []
+    
+    # 1. 요약본이 있으면 추가
+    if summary:
+        context_parts.append(f"**[이전 대화 요약]**\n{summary}\n")
+    
+    # 2. 최근 메시지 추가
+    recent_messages = messages[-KEEP_RECENT_MESSAGES:] if len(messages) > KEEP_RECENT_MESSAGES else messages
+    
+    if recent_messages:
+        context_parts.append("**[최근 대화]**")
+        for msg in recent_messages:
+            role = "사용자" if msg["role"] == "user" else "AI"
+            context_parts.append(f"{role}: {msg['content']}")
+    
+    return "\n".join(context_parts) if context_parts else ""
+
+
+# --- 5. RAG 체인 구성  ---
 PROMPT_TEMPLATE = """
 당신은 **엄격한 보안 및 정확도를 최우선**으로 하는 전력 관련 전문가입니다.
 사용자의 질문에 대해 신뢰할 수 있고 명확한 정보를 제공합니다.
+
+{conversation_history}
 
 [공통 규칙: 모든 답변에 항상 적용되는 기본 어조]
 - 답변 언어는 질문과 같은 언어로 설정하되, 반드시 존댓말로 답변하세요.
@@ -237,11 +400,15 @@ RAG_CHAIN = create_rag_chain(LLM_MODEL)
 print(" RAG 리소스 로드 완료.")
 
 
-# --- 6. 답변 생성 함수 ---
-async def get_rag_response(user_query: str) -> Tuple[str, List[Document]]:
+# --- 6. 답변 생성 함수 (Rolling Summary 적용) ---
+async def get_rag_response(
+    user_query: str,
+    conversation_manager: Optional[ConversationManager] = None,
+    session_id: str = "default"
+) -> Tuple[str, List[Document]]:
     """
     사용자 쿼리를 받아 하이브리드 검색 및 RAG 답변을 반환합니다.
-    (이 함수를 api.py에서 import 합니다)
+    Rolling Summary를 활용하여 대화 맥락을 유지합니다.
     """
     print(f"\n [ RAG 로직 실행 ] 질문: {user_query}")
 
@@ -261,10 +428,18 @@ async def get_rag_response(user_query: str) -> Tuple[str, List[Document]]:
         [f"질문: {doc.page_content}\n답변: {doc.metadata.get('answer', '')}" for doc in retrieved_docs]
     )
     
-    # 3. RAG 체인을 통해 최종 답변 생성 
+    # 3. 대화 맥락 가져오기 (Rolling Summary)
+    conversation_context = ""
+    if conversation_manager:
+        conversation_context = get_conversation_context(conversation_manager, session_id)
+        if conversation_context:
+            print("  -> 대화 맥락 포함됨 (Rolling Summary)")
+    
+    # 4. RAG 체인을 통해 최종 답변 생성 
     print("  -> 답변 생성 시작...")
     current_date = datetime.datetime.now().strftime("%Y년 %m월 %d일")
     final_answer = await RAG_CHAIN.ainvoke({
+        "conversation_history": conversation_context if conversation_context else "",
         "context": context_text,
         "question": user_query,
         "current_date": current_date
@@ -277,29 +452,88 @@ async def get_rag_response(user_query: str) -> Tuple[str, List[Document]]:
     print("  -> 답변 생성 완료.")
     return final_answer, retrieved_docs
 
-# --- 7. 대화형 터미널 루프 ---
+# --- 7. 대화형 터미널 루프 (Rolling Summary 적용) ---
 async def main_interactive_loop():
-    print("\n--- [대화형 터미널 모드] ---")
+    print("\n--- [대화형 터미널 모드 (Rolling Summary 기능 활성화)] ---")
+    
+    # ConversationManager 초기화
+    conversation_manager = ConversationManager()
+    session_id = f"terminal_session_{int(time.time())}"
+    print(f"📝 세션 ID: {session_id}")
     print("초기화 완료. 이제 질문을 입력할 수 있습니다.")
+    print("💡 대화 맥락이 자동으로 유지됩니다 (Rolling Summary)\n")
+    
+    # 요약용 LLM 생성 (간단한 요약용)
+    summary_llm = ChatBedrock(
+        model_id=LLM_MODEL,
+        region_name=os.getenv("AWS_REGION", "us-east-1"),
+        model_kwargs={"temperature": 0.3}
+    )
     
     while True:
-        user_query = input("\n\n 질문을 입력하세요 (종료하려면 'exit' 입력): ")
+        user_query = input("\n질문을 입력하세요 (종료: 'exit', 대화 초기화: 'reset'): ")
+        
         if user_query.lower() == 'exit':
             print("프로그램을 종료합니다.")
             break
         
+        if user_query.lower() == 'reset':
+            conversation_manager.clear_session(session_id)
+            print("✅ 대화 히스토리가 초기화되었습니다.")
+            continue
+        
         start_time = time.time()
+        
+        # 1. 사용자 질문 저장
+        conversation_manager.add_message(session_id, "user", user_query)
+        
+        # 2. Rolling Summary 체크 및 실행
+        message_count = conversation_manager.get_message_count(session_id)
+        print(f"  [현재 대화 수: {message_count}개]")
+        
+        if message_count >= SUMMARY_TRIGGER_COUNT:
+            print("  🔄 대화가 많이 누적되었습니다. 요약을 생성합니다...")
             
-        # 분리된 get_rag_response 함수 호출
-        final_answer, retrieved_docs = await get_rag_response(user_query)
+            # 오래된 메시지들 가져오기 (최근 것 제외)
+            all_messages = conversation_manager.get_messages(session_id)
+            messages_to_summarize = all_messages[:-KEEP_RECENT_MESSAGES]
             
-        print("\n--- [컨텍스트 상세 내용 ] ---")
+            if messages_to_summarize:
+                # 기존 요약과 병합
+                existing_summary = conversation_manager.get_summary(session_id)
+                if existing_summary:
+                    # 기존 요약을 첫 번째 메시지로 추가
+                    messages_to_summarize.insert(0, {
+                        "role": "assistant",
+                        "content": f"[이전 요약] {existing_summary}"
+                    })
+                
+                # 요약 생성
+                new_summary = await summarize_conversation(messages_to_summarize, summary_llm)
+                conversation_manager.set_summary(session_id, new_summary)
+                
+                # 오래된 메시지 삭제 (최근 것만 유지)
+                conversation_manager.trim_old_messages(session_id, KEEP_RECENT_MESSAGES)
+                
+                print(f"  ✅ 요약 완료! (오래된 대화 {len(messages_to_summarize)}개 → 요약본으로 압축)")
+        
+        # 3. RAG 답변 생성 (대화 맥락 포함)
+        final_answer, retrieved_docs = await get_rag_response(
+            user_query,
+            conversation_manager=conversation_manager,
+            session_id=session_id
+        )
+        
+        # 4. AI 답변 저장
+        conversation_manager.add_message(session_id, "assistant", final_answer)
+            
+        print("\n--- [컨텍스트 상세 내용] ---")
         for i, doc in enumerate(retrieved_docs):
             page = doc.metadata.get('rows') or doc.metadata.get('page')
             print(f"  ({i+1}) [Source: {doc.metadata.get('source')}, page: {page}]")
         print("-------------------------------------------")
 
-        print(" 최종 답변:")
+        print("\n📝 최종 답변:")
         print(final_answer)
 
         end_time = time.time()
