@@ -42,8 +42,8 @@ FAISS_FINAL_K = 6
 BM25_FINAL_K = 6  
 
 # Rolling Summary 설정
-SUMMARY_TRIGGER_COUNT = 5  # 메시지 5개 이상 누적 시 요약
-KEEP_RECENT_MESSAGES = 4    # 최근 4개 메시지는 원문 유지 (Q&A 2쌍)
+SUMMARY_TRIGGER_COUNT = 0  # 메시지 0개 이상 누적 시 요약
+KEEP_RECENT_MESSAGES = 10    # 최근 10개 메시지는 원문 유지 (Q&A 5쌍)
 
 # --- 2. Redis 연결 및 대화 관리 클래스 ---
 class ConversationManager:
@@ -461,7 +461,7 @@ async def main_interactive_loop():
     session_id = f"terminal_session_{int(time.time())}"
     print(f"📝 세션 ID: {session_id}")
     print("초기화 완료. 이제 질문을 입력할 수 있습니다.")
-    print("💡 대화 맥락이 자동으로 유지됩니다 (Rolling Summary)\n")
+    print("💡 대화 맥락이 자동으로 유지됩니다 \n")
     
     # 요약용 LLM 생성 (간단한 요약용)
     summary_llm = ChatBedrock(
@@ -479,7 +479,7 @@ async def main_interactive_loop():
         
         if user_query.lower() == 'reset':
             conversation_manager.clear_session(session_id)
-            print("✅ 대화 히스토리가 초기화되었습니다.")
+            print("대화 히스토리가 초기화되었습니다.")
             continue
         
         start_time = time.time()
@@ -492,7 +492,7 @@ async def main_interactive_loop():
         print(f"  [현재 대화 수: {message_count}개]")
         
         if message_count >= SUMMARY_TRIGGER_COUNT:
-            print("  🔄 대화가 많이 누적되었습니다. 요약을 생성합니다...")
+            print("  대화가 많이 누적되어서 요약을 생성합니다...")
             
             # 오래된 메시지들 가져오기 (최근 것 제외)
             all_messages = conversation_manager.get_messages(session_id)
@@ -515,7 +515,7 @@ async def main_interactive_loop():
                 # 오래된 메시지 삭제 (최근 것만 유지)
                 conversation_manager.trim_old_messages(session_id, KEEP_RECENT_MESSAGES)
                 
-                print(f"  ✅ 요약 완료! (오래된 대화 {len(messages_to_summarize)}개 → 요약본으로 압축)")
+                print(f" (오래된 대화 {len(messages_to_summarize)}개 → 요약본으로 압축함)")
         
         # 3. RAG 답변 생성 (대화 맥락 포함)
         final_answer, retrieved_docs = await get_rag_response(
