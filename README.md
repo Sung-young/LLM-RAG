@@ -38,9 +38,11 @@ python -m src.main
 pipenv shell
 pipenv install
 
-
 # 실행
 python main.py
+
+# 배포
+nohup uvicorn main:app --host 0.0.0.0 --port 5000 > uvicorn.log 2>&1 &
 ```
 
 ### 모니터링 포인트
