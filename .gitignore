@@ -33,3 +33,6 @@ dump.rdb
 
 # 벡터 데이터베이스
 vectordb_*/
+
+# 로그 파일
+uvicorn.log

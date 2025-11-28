@@ -24,14 +24,14 @@ class QueryResponse(BaseModel):
 
 # OpenAI API 호환 모델
 class Message(BaseModel):
-    role: str = Field(..., description="메시지 역할 (system, user, assistant)", examples=["user"])
+    role: str = Field(default="user", description="메시지 역할은 user 만 지원합니다.", examples=["user"])
     content: str = Field(..., description="메시지 내용")
 
 class ChatCompletionRequest(BaseModel):
     model: str = Field(default="kepco-rag-model", description="모델 이름")
     messages: List[Message] = Field(..., description="대화 메시지 리스트")
-    temperature: Optional[float] = Field(default=0.3, ge=0, le=1, description="샘플링 온도")
-    max_tokens: Optional[int] = Field(default=None, description="최대 토큰 수")
+    temperature: Optional[float] = Field(default=0.7, ge=0, le=2, description="응답 창의성")
+    max_tokens: Optional[int] = Field(default=None, description="최대 생성 토큰 수")
     stream: Optional[bool] = Field(default=False, description="스트리밍 여부")
 
 class ChatCompletionResponseChoice(BaseModel):
@@ -51,6 +51,14 @@ class ChatCompletionResponse(BaseModel):
     model: str
     choices: List[ChatCompletionResponseChoice]
     usage: Usage
+
+class ErrorDetail(BaseModel):
+    type: str
+    message: str
+    code: str
+
+class ErrorResponse(BaseModel):
+    error: ErrorDetail
 
 
 @app.post("/query", response_model=QueryResponse, summary="RAG 질의응답")
@@ -83,7 +91,9 @@ async def handle_query(request: QueryRequest):
 def read_root():
     return {"status": "RAG API is running"}
 
-@app.post("/api/v1/chat/completions", response_model=ChatCompletionResponse, summary="OpenAI Chat Completions API 호환 엔드포인트")
+@app.post("/api/v1/chat/completions", response_model=ChatCompletionResponse, summary="OpenAI Chat Completions API 호환 엔드포인트", responses={
+    401: {"model": ErrorResponse, "description": "인증 오류"}
+})
 async def chat_completions(
     request: ChatCompletionRequest,
     x_api_key: Optional[str] = Header(None, alias="X-API-Key")
@@ -92,17 +102,39 @@ async def chat_completions(
     OpenAI Chat Completions API와 호환되는 엔드포인트입니다.
     
     - **model**: 모델 이름 (기본값: kepco-rag-model)
-    - **messages**: 대화 메시지 리스트 (마지막 user 메시지를 질의로 사용)
-    - **temperature**: 샘플링 온도 (0.0 ~ 2.0)
+    - **role**: 메시지 역할 (user 만 지원)
+    - **content**: 질문 내용 ( 한국어만 지원 )
+    - **temperature**: 샘플링 온도 (0.0 ~ 2.0 - KEPCO 미지원 )
+    - **stream**: 스트리밍 여부 (현재 미지원 )
+    - **max_tokens**: 최대 생성 토큰 수( KEPCO 미지원 )
     - **X-API-Key**: API 키 (헤더에 포함)
+    
     """
     # API 키 검증
     expected_api_key = os.getenv("KEPCO_API_KEY")
     if not x_api_key:
-        raise HTTPException(status_code=401, detail="X-API-Key 헤더가 필요합니다. API 키를 확인해주세요.")
+        raise HTTPException(
+            status_code=401, 
+            detail={
+                "error": {
+                    "type": "authentication_error",
+                    "message": "X-API-Key 헤더가 필요합니다.",
+                    "code": "missing_api_key"
+                }
+            }
+        )
     
     if x_api_key != expected_api_key:
-        raise HTTPException(status_code=401, detail="유효하지 않은 API 키입니다. X-API-Key를 검토해주세요.")
+        raise HTTPException(
+            status_code=401, 
+            detail={
+                "error": {
+                    "type": "authentication_error",
+                    "message": "유효하지 않은 API 키입니다.",
+                    "code": "invalid_api_key"
+                }
+            }
+        )
     
     print(f"\n [Chat Completions API 요청 수신]")
     print(f"  Model: {request.model}")
