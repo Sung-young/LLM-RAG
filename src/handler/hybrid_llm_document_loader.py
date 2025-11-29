@@ -23,9 +23,9 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
-    from utils.loader_modules import to_documents, split_texts
+    from utils.loader_modules import to_documents, split_texts, split_texts_pdf
 except ModuleNotFoundError:
-    from src.utils.loader_modules import to_documents, split_texts
+    from src.utils.loader_modules import to_documents, split_texts, split_texts_pdf
 
 # AWS Bedrock 임포트
 
@@ -513,7 +513,7 @@ class HybridLLMPdfLoader(BaseLoader):
 
                     # 2단계: 테이블 개수에 따라 분기 처리
                     if table_count >= 2:
-                        # ⭐ 테이블 2개 이상 → LLM 처리
+                        # 테이블 2개 이상 → LLM 처리
                         logger.info(f"페이지 {i}: 테이블 2개 이상 → LLM으로 처리")
 
                         page_pdf_bytes = page_pdf_list[i - 1]
@@ -521,7 +521,7 @@ class HybridLLMPdfLoader(BaseLoader):
                             page_pdf_bytes, i)
 
                         if extracted_text and extracted_text.strip():
-                            text_chunks = split_texts(extracted_text)
+                            text_chunks = split_texts_pdf(extracted_text)
 
                             new_docs, doc_idx = to_documents(
                                 file_path=self.file_name,
