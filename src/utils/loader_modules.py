@@ -76,6 +76,35 @@ def split_texts(text):
     return text_chunks
 
 
+def split_texts_pdf(text):
+    """
+    <table>...</table> 또는 <div>...</div> 태그 블록은 하나의 청크로 유지한다.
+    """
+    # <table>...</table> 및 <div>...</div> 블록 추출 
+    pattern = r"(<table>.*?</table>|<div>.*?</div>)"
+    parts = re.split(pattern, text, flags=re.DOTALL)
+
+    chunks = []
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=50)
+
+    # 분리된 각 부분 처리
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+
+        # table/div 블록이면 그대로 하나의 청크로 추가
+        if re.match(r"^<table>.*</table>$", part, flags=re.DOTALL) or re.match(r"^<div>.*</div>$", part, flags=re.DOTALL):
+            chunks.append(part)
+
+        # 일반 텍스트는 RecursiveCharacterTextSplitter로 분리
+        else:
+            small_chunks = text_splitter.split_text(part)
+            chunks.extend(small_chunks)
+
+    return chunks
+
+
 def to_documents(file_name, file_path, text_chunks, doc_idx=0, page_num=1, total_pages=1):
     documents = []
     
@@ -475,6 +504,10 @@ class loader_modules:
     @staticmethod
     def split_texts(file_path, text):
         return split_texts(file_path, text)
+    
+    @staticmethod
+    def split_texts_pdf(file_path, text):
+        return split_texts_pdf(file_path, text)
 
     @staticmethod
     def to_documents(file_path, text_chunks, doc_idx, page_num, total_pages):
