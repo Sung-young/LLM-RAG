@@ -16,7 +16,6 @@ import traceback
 
 from PIL import Image
 
-from langchain_upstage import UpstageDocumentParseLoader
 
 from pathlib import Path
 from langchain_core.document_loaders import BaseLoader
@@ -28,7 +27,6 @@ from langchain_community.document_loaders import (
     UnstructuredWordDocumentLoader,
 )
 from langchain_core.documents import Document
-from langchain_teddynote.document_loaders import HWPLoader
 
 import sys
 # Add parent directory to path for direct execution
@@ -166,65 +164,6 @@ class CustomDocumentLoader(BaseLoader):
 
         return chunks
 
-    @staticmethod
-    def _load_pdf_upstage_only(
-        file: Union[str, io.BytesIO],
-        file_path: str,
-        file_name: str,
-    ) -> list[Document]:
-        """Upstage Document Parser만 사용하여 PDF 처리 (LLM OCR 없음)"""
-        new_documents = []
-        doc_idx = 0
-
-        # 파일 임시 저장
-        if isinstance(file, io.BytesIO):
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                tmp.write(file.read())
-                tmp_path = tmp.name
-            file_bytes = open(tmp_path, "rb").read()
-        elif isinstance(file, str):
-            tmp_path = file_path
-            with open(file_path, "rb") as f:
-                file_bytes = f.read()
-        else:
-            # 파일 객체인 경우 (docx 변환 후 열린 파일)
-            tmp_path = file.name if hasattr(file, "name") else None
-            file.seek(0)  # 파일 포인터를 처음으로 이동
-            file_bytes = file.read()
-
-        try:
-            logger.info("Upstage Document Parser만 사용하여 PDF 처리 시작")
-            start_time = time.time()
-
-            loader = UpstageDocumentParseLoader(tmp_path, ocr="force", split="page")
-            pages = loader.load()
-            total_page = len(pages)
-
-            # Upstage 결과를 모두 텍스트로 변환 (LLM OCR 건너뛰기)
-            for page_num, page in enumerate(pages, start=1):
-                html_content = page.page_content
-
-                # HTML 내용을 텍스트로 변환
-                text = CustomDocumentLoader.clean_html(html_content)
-                text_chunks = CustomDocumentLoader.split_texts_preserve_table(text)
-                text_chunks = CustomDocumentLoader.processing_table_tags(text_chunks)
-
-                # Document 생성
-                docs, doc_idx = to_documents(
-                    file_name, file_path, text_chunks, doc_idx, page_num, total_page
-                )
-                new_documents.extend(docs)
-
-            elapsed = time.time() - start_time
-            logger.info(
-                f"Upstage만으로 PDF 처리 완료 - 소요시간: {elapsed:.2f}초, 페이지: {total_page}개"
-            )
-
-        finally:
-            if isinstance(file, io.BytesIO) and os.path.exists(tmp_path):
-                os.remove(tmp_path)
-
-        return new_documents
 
     @staticmethod
     def _split_pdf_by_pages(pdf_bytes: bytes) -> list[bytes]:
