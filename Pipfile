@@ -15,6 +15,16 @@ uvicorn = "*"
 fastapi = "*"
 redis = "*"
 python-jose = {extras = ["cryptography"], version = "*"}
+python-dotenv = "*"
+openai = "*"
+camelot-py = "*"
+pandas = "*"
+pdfplumber = "*"
+pypdf = "*"
+langchain = "*"
+langchain-text-splitters = "*"
+pymupdf = "*"
+utils = "*"
 
 [dev-packages]
 

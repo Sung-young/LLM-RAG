@@ -9,3 +9,4 @@ pipenv install uvicorn
 pipenv install fastapi
 pipenv install dotenv
 pipenv install redis
+pipenv install openai
