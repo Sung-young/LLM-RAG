@@ -4,12 +4,12 @@ import logging
 import torch
 from tqdm import tqdm
 from src.handler.document_loader import CustomDocumentLoader
+from src.handler.hybrid_llm_document_loader import HybridLLMPdfLoader
 from src.handler.new_document_loader import PdfLoader
 from langchain_openai import OpenAIEmbeddings
-from langchain_upstage import UpstageEmbeddings
 from sentence_transformers import SentenceTransformer
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.vectorstores import FAISS
+from langchain_community.vectorstores import FAISS
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 torch.mps.empty_cache()
@@ -74,7 +74,7 @@ def append_to_vectorstore(input_path: str, index_path: str = "faiss_index", batc
             with open(path, "rb") as f:
                 file_bytes = io.BytesIO(f.read())
             # loader = CustomDocumentLoader(file_path=path,file=file_bytes, file_name=path)
-            loader = PdfLoader(file_path=path,file=file_bytes, file_name=path)
+            loader = HybridLLMPdfLoader(file_path=path,file=file_bytes, file_name=path)
             docs = loader.load()
             all_documents.extend(docs)
         except Exception as e:
