@@ -1,6 +1,7 @@
 import redis
 import json
 import datetime
+import os
 from typing import List, Dict, Optional
 
 class ConversationManager:
@@ -9,19 +10,26 @@ class ConversationManager:
     (Rolling Summary 기능 제거됨)
     """
     
-    def __init__(self, redis_host: str = "localhost", redis_port: int = 6379, redis_db: int = 0):
+    def __init__(self, host: str = None, port: int = None, password: str = None, db: int = 0):
+
+        # 인자가 없으면 환경변수에서 찾고, 그것도 없으면 기본값 사용
+        self.redis_host = host or os.getenv("REDIS_HOST", "localhost")
+        self.redis_port = int(port or os.getenv("REDIS_PORT", 6379))
+        self.redis_password = password or os.getenv("REDIS_PASSWORD", None)
+
         try:
             self.redis_client = redis.Redis(
-                host=redis_host,
-                port=redis_port,
-                db=redis_db,
+                host=self.redis_host,
+                port=self.redis_port,
+                password=self.redis_password,
+                db=db,
                 decode_responses=True,
                 socket_timeout=5,
                 socket_connect_timeout=5
             )
             # Redis 연결 테스트
             self.redis_client.ping()
-            print(f"✅ Redis 연결 성공 ({redis_host}:{redis_port})")
+            print(f"✅ Redis 연결 성공 ({self.redis_host}:{self.redis_port})")
         except (redis.ConnectionError, redis.TimeoutError) as e:
             print(f"⚠️ Redis 연결 실패: {e}")
             print("   -> 대화 히스토리 기능이 비활성화됩니다. (메모리 모드로 동작)")
