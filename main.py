@@ -7,6 +7,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from jose import JWTError, jwt
 from src.main import get_rag_response 
+from src.utils.conversation_manager import ConversationManager
 
 # ---------------------------------------------------------
 # JWT 토큰 관련 설정
@@ -22,6 +23,8 @@ app = FastAPI(
 )
 
 auth_scheme = HTTPBearer()
+
+conversation_manager = ConversationManager()
 
 # ---------------------------------------------------------
 # Pydantic 데이터 모델 정의
@@ -41,7 +44,7 @@ class QueryRequest(BaseModel):
 
 class QueryResponse(BaseModel):
     answer: str
-    sender: str # 응답을 요청한 사용자 이름 표시 (확인용)
+    sender: str 
 
 # ---------------------------------------------------------
 # 보안 및 토큰 처리 함수
@@ -66,7 +69,7 @@ async def get_current_user_name(credentials: HTTPAuthorizationCredentials = Depe
         if not user_name or not employee_id:
             raise HTTPException(status_code=401, detail="토큰 정보가 올바르지 않습니다.")
         
-        return user_name
+        return {"id": employee_id, "name": user_name}
 
     except JWTError:
         raise HTTPException(status_code=401, detail="토큰 검증 실패")
@@ -106,33 +109,25 @@ async def login(request: LoginRequest):
 @app.post("/query", response_model=QueryResponse, summary="RAG 질의응답 (인증 필요)")
 async def handle_query(
     request: QueryRequest, 
-    user_name: str = Depends(get_current_user_name) # 여기서 토큰 검증 및 이름 추출이 자동으로 수행됨
+    user_info: str = Depends(get_current_user_name)
 ):
     """
     사용자 쿼리를 입력받아 RAG 체인을 통해 생성된 답변을 반환합니다.
     (Header에 'Authorization: Bearer <Token>' 필요)
     """
-    print(f"\n [API 요청 수신] 질문: {request.query} | 요청자: {user_name}")
+    user_name = user_info["name"]
+    employee_id = user_info["id"] # Session ID
+    
+    print(f"\n [API 요청] User: {user_name}({employee_id}) | Query: {request.query}")
     
     start_time = time.time()
     
-    # 수정된 부분: get_rag_response 함수에 query와 user_name을 함께 전달
-    # 주의: src.main의 get_rag_response 함수도 인자를 받도록 수정되어야 합니다.
-    try:
-        # 만약 기존 함수가 이름 인자를 받지 않는다면 아래처럼 호출하고,
-        # 기존 함수 수정이 필요하다면 get_rag_response(request.query, user_name) 으로 변경하세요.
-        # 여기서는 요청사항에 따라 이름을 넣는 것으로 가정합니다.
-        final_answer, retrieved_docs = await get_rag_response(request.query, user_name)
-    except TypeError:
-        # 만약 src.main을 아직 수정하지 않아 인자 오류가 날 경우를 대비한 처리
-        final_answer, retrieved_docs = await get_rag_response(request.query)
-        final_answer = f"(시스템 알림: {user_name}님, 백엔드 함수 인자 업데이트가 필요합니다.)\n" + final_answer
-
-    if retrieved_docs:
-        sources = list(set([doc.metadata.get("source", "N/A") for doc in retrieved_docs]))
-        print(f" -> (응답에 미포함) 참고한 소스: {', '.join(sources)}")
-    else:
-        print(f" -> 참고한 소스를 찾지 못했습니다.")
+    final_answer, retrieved_docs = await get_rag_response(
+        user_query=request.query,
+        user_name=user_name,
+        conversation_manager=conversation_manager, 
+        session_id=employee_id                   
+    )
 
     end_time = time.time()
     elapsed = end_time - start_time
@@ -140,12 +135,27 @@ async def handle_query(
 
     return QueryResponse(
         answer=final_answer,
-        sender=user_name
+        sender=user_name,
+        session_id=employee_id
     )
 
-@app.get("/", summary="API 상태 확인")
-def read_root():
-    return {"status": "RAG API is running", "auth_mode": "enabled"}
+
+@app.get("/history/{employee_id}", summary="[관리자용] 특정 사원 대화기록 조회")
+async def get_history(employee_id: str):
+    """
+    특정 사번의 대화 내용을 조회합니다.
+    """
+    # 이미 만들어둔 conversation_manager 사용
+    messages = conversation_manager.get_messages(employee_id)
+    
+    if not messages:
+        return {"message": "대화 기록이 없거나 만료되었습니다."}
+        
+    return {
+        "employee_id": employee_id,
+        "count": len(messages),
+        "messages": messages
+    }
 
 # Uvicorn으로 서버 실행
 if __name__ == "__main__":
