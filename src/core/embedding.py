@@ -105,5 +105,5 @@ def append_to_vectorstore(input_path: str, index_path: str = "faiss_index", batc
 
 
 if __name__ == "__main__":
-    input_folder = "data37"  
+    input_folder = "data"  
     append_to_vectorstore(input_folder, index_path="vectordb", batch_size=16)
