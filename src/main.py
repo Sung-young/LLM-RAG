@@ -25,6 +25,7 @@ from sentence_transformers import SentenceTransformer
 from langchain_community.embeddings import HuggingFaceEmbeddings
 
 from src.utils.conversation_manager import ConversationManager
+from typing import AsyncGenerator, Union
 
 # .env 파일에서 API 키를 로드합니다.
 load_dotenv()
@@ -279,8 +280,9 @@ async def get_rag_response(
     user_query: str,
     user_name: str,
     conversation_manager: Optional[ConversationManager] = None,
-    session_id: str = "default"
-) -> Tuple[str, List[Document]]:
+    session_id: str = "default",
+    stream_mode: bool = False
+) -> Tuple[Union[str, AsyncGenerator], List[Document]]:
     """
     사용자 쿼리를 받아 하이브리드 검색 및 RAG 답변을 반환합니다.
     Rolling Summary를 활용하여 대화 맥락을 유지합니다.
@@ -325,20 +327,96 @@ async def get_rag_response(
     # 4. RAG 체인을 통해 최종 답변 생성 
     print("  -> 답변 생성 시작...")
     current_date = datetime.datetime.now().strftime("%Y년 %m월 %d일")
-    final_answer = await RAG_CHAIN.ainvoke({
+
+    # LLM 입력 데이터
+    chain_input = {
         "conversation_history": conversation_context if conversation_context else "",
         "context": context_text,
         "question": user_query,
         "current_date": current_date,
         "user_name": user_name,
-    })
+    }
+
+    # --- 스트리밍 모드일 때 ---
+    if stream_mode:
+        async def response_generator():
+            full_answer_for_redis = ""
+            
+            # 필터링을 위한 변수들
+            buffer = "" 
+            in_reasoning = False
+            
+            print("  -> 스트리밍 답변 시작...")
+            
+            # astream을 사용하여 청크 단위로 받음
+            async for chunk in RAG_CHAIN.astream(chain_input):           
+                full_answer_for_redis += chunk 
+                buffer += chunk
+
+                while True:
+                    # 1. 현재 <reasoning> 태그 안에 있는 경우 
+                    if in_reasoning:
+                        if "</reasoning>" in buffer:
+                            _, buffer = buffer.split("</reasoning>", 1)
+                            in_reasoning = False
+                            continue 
+                        else:
+                            break 
+
+                    # 2. 일반 텍스트 구간인 경우 (출력해야 함)
+                    else:
+                        if "<reasoning>" in buffer:
+                            part_to_yield, buffer = buffer.split("<reasoning>", 1)
+                            if part_to_yield:
+                                yield part_to_yield
+                            in_reasoning = True
+                            continue 
+                        
+                        else:
+                            if "<" in buffer:
+                                last_open_bracket = buffer.rfind("<")
+                                to_yield = buffer[:last_open_bracket]
+                                
+                                if to_yield:
+                                    yield to_yield
+                                    buffer = buffer[last_open_bracket:]
+                                break 
+                            else:
+                                # 태그 의심 부분이 없으면 모두 출력
+                                if buffer:
+                                    yield buffer
+                                    buffer = ""
+                                break
+
+            # 스트림 종료 후 버퍼에 남은 잔여 텍스트 처리
+            if buffer and not in_reasoning:
+                yield buffer
+
+            # 스트리밍이 끝난 후 Redis에 전체 답변 저장 (Clean 버전으로)
+            clean_answer = re.sub(r'<reasoning>.*?</reasoning>', '', full_answer_for_redis, flags=re.DOTALL).strip()
+            clean_answer = re.sub(r'<br\s*/?>', '\n', clean_answer, flags=re.IGNORECASE).strip()
+            
+            conversation_manager.add_message(session_id, "assistant", clean_answer)
+            print("  -> 스트리밍 완료 및 Redis 저장 됨.")
+
+        # 제너레이터 자체를 리턴
+        return response_generator(), retrieved_docs
     
-    # <reasoning> 태그 제거 
-    final_answer = re.sub(r'<reasoning>.*?</reasoning>', '', final_answer, flags=re.DOTALL).strip()
-    final_answer = re.sub(r'<br\s*/?>', '\n', final_answer, flags=re.IGNORECASE).strip()
-    
-    print("  -> 답변 생성 완료.")
-    return final_answer, retrieved_docs
+    # --- 일반 모드일 때 ---
+    else:
+        print("  -> 일반 답변 생성 시작...")
+        final_answer = await RAG_CHAIN.ainvoke(chain_input)
+        
+        # 후처리 (Reasoning 태그 제거)
+        final_answer = re.sub(r'<reasoning>.*?</reasoning>', '', final_answer, flags=re.DOTALL).strip()
+        final_answer = re.sub(r'<br\s*/?>', '\n', final_answer, flags=re.IGNORECASE).strip()
+        
+        # Redis 저장
+        if conversation_manager:
+            conversation_manager.add_message(session_id, "assistant", final_answer)
+        print("  -> 답변 생성 완료.")
+        
+        return final_answer, retrieved_docs
 
 # --- 8. 대화형 터미널 루프 ---
 async def main_interactive_loop():
@@ -347,6 +425,7 @@ async def main_interactive_loop():
     conversation_manager = ConversationManager()
 
     session_id = "00000000" # 테스트용 세션 ID
+    stream_mode = True  # 스트리밍 모드 여부 설정
 
     print(f"📝 세션 ID: {session_id}")
     print("💡 대화 맥락이 유지됩니다.\n")
@@ -363,24 +442,40 @@ async def main_interactive_loop():
         
         start_time = time.time()
         
-        # 답변 생성
-        final_answer, retrieved_docs = await get_rag_response(
+        # 1. 답변 생성 요청
+        response_data, retrieved_docs = await get_rag_response(
             user_query,
             user_name="테스트유저",
             conversation_manager=conversation_manager,
-            session_id=session_id
+            session_id=session_id,
+            stream_mode=stream_mode
         )
-        
-        # 답변 저장
-        conversation_manager.add_message(session_id, "assistant", final_answer)
-            
+
+        # 2. 참고 문서 출력
         print("\n--- [참고 문서] ---")
         for i, doc in enumerate(retrieved_docs):
             page = doc.metadata.get('rows') or doc.metadata.get('page')
             print(f"  ({i+1}) {doc.metadata.get('source')} (p.{page})")
 
         print("\n📝 최종 답변:")
-        print(final_answer)
+        
+        # 스트리밍인지 일반 문자열인지 확인하여 다르게 처리
+        final_answer_text = ""
+        
+        if stream_mode:
+            # 스트리밍 모드: 제너레이터에서 한 글자씩 받아서 즉시 출력
+            try:
+                async for chunk in response_data:
+                    print(chunk, end="", flush=True) # 줄바꿈 없이 바로 출력
+                    final_answer_text += chunk
+                print() # 줄바꿈
+            except Exception as e:
+                print(f"\n[에러] 스트리밍 중 오류 발생: {e}")
+        else:
+            # 일반 모드: 그냥 문자열 출력
+            print(response_data)
+            final_answer_text = response_data
+
         print(f"\n[처리 시간: {time.time() - start_time:.2f}초]")
 
 if __name__ == "__main__":

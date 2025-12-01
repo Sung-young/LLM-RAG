@@ -1,6 +1,6 @@
 import uvicorn
 import time
-from typing import Optional
+from typing import Optional, Dict
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from jose import JWTError, jwt
 from src.main import get_rag_response 
 from src.utils.conversation_manager import ConversationManager
+from fastapi.responses import StreamingResponse
 
 # ---------------------------------------------------------
 # JWT 토큰 관련 설정
@@ -41,10 +42,12 @@ class Token(BaseModel):
 
 class QueryRequest(BaseModel):
     query: str
+    stream: bool = False 
 
 class QueryResponse(BaseModel):
     answer: str
     sender: str 
+    session_id: str
 
 # ---------------------------------------------------------
 # 보안 및 토큰 처리 함수
@@ -57,7 +60,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-async def get_current_user_name(credentials: HTTPAuthorizationCredentials = Depends(auth_scheme)):
+async def get_current_user_info(credentials: HTTPAuthorizationCredentials = Depends(auth_scheme)):
     """Bearer 토큰만으로 인증"""
     token = credentials.credentials
 
@@ -109,7 +112,7 @@ async def login(request: LoginRequest):
 @app.post("/query", response_model=QueryResponse, summary="RAG 질의응답 (인증 필요)")
 async def handle_query(
     request: QueryRequest, 
-    user_info: str = Depends(get_current_user_name)
+    user_info: Dict[str, str] = Depends(get_current_user_info)
 ):
     """
     사용자 쿼리를 입력받아 RAG 체인을 통해 생성된 답변을 반환합니다.
@@ -126,19 +129,29 @@ async def handle_query(
         user_query=request.query,
         user_name=user_name,
         conversation_manager=conversation_manager, 
-        session_id=employee_id                   
+        session_id=employee_id,
+        stream_mode=request.stream                   
     )
 
     end_time = time.time()
     elapsed = end_time - start_time
     print(f" [API 응답 완료] 처리 시간: {elapsed:.2f}초")
 
-    return QueryResponse(
-        answer=final_answer,
-        sender=user_name,
-        session_id=employee_id
-    )
-
+    # --- 스트리밍 응답 ---
+    if request.stream:
+        return StreamingResponse(
+            final_answer, 
+            media_type="text/event-stream", 
+        )
+    
+    # --- 일반 JSON 응답 ---
+    else:
+        # response_data는 여기서 str(완성된 답변)입니다.
+        return QueryResponse(
+            answer=final_answer,
+            sender=user_name,
+            session_id=employee_id
+        )
 
 @app.get("/history/{employee_id}", summary="[관리자용] 특정 사원 대화기록 조회")
 async def get_history(employee_id: str):
