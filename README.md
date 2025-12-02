@@ -43,6 +43,25 @@ pipenv install
 python main.py
 ```
 
+### 시작 방법(Redis)
+```bash
+# 환경 설정
+pipenv shell
+pipenv install
+
+
+# docker 실행
+docker-compose up -d
+
+# 모니터링
+Redis 컨테이너 접속:
+docker exec -it chatbot-redis redis-cli -a "비밀번호"
+
+현재 대화 중인 유저 목록 보기:
+KEYS conversation:*
+
+```
+
 ### 모니터링 포인트
 - ✅ RAG 리소스 초기화: "RAG 리소스 로드 완료" 메시지 확인
 - ✅ RAG Retriever 진행 시 문서 및 답변 확인
