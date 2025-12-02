@@ -45,11 +45,6 @@ python main.py
 
 ### 시작 방법(Redis)
 ```bash
-# 환경 설정
-pipenv shell
-pipenv install
-
-
 # docker 실행
 docker-compose up -d
 
