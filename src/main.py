@@ -33,7 +33,7 @@ load_dotenv()
 # --- 1. 기본 설정 ---
 # 현재 파일의 디렉토리 기준으로 경로 설정
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) 
-FAISS_INDEX_PATH = os.path.join(BASE_DIR, "vectordb")  
+FAISS_INDEX_PATH = os.path.join(BASE_DIR, "vectordb_merged")  
 EMBEDDING_MODEL = "text-embedding-3-small"  
 LLM_MODEL = "openai.gpt-oss-120b-1:0"  
 MODEL_NAME = "dragonkue/bge-m3-ko"  

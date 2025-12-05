@@ -13,7 +13,10 @@ from langchain_core.document_loaders import BaseLoader
 
 from pdfplumber.utils import get_bbox_overlap, obj_to_bbox, extract_text
 
-from utils.loader_modules import to_documents, split_texts
+try:
+    from utils.loader_modules import to_documents, split_texts
+except ModuleNotFoundError:
+    from src.utils.loader_modules import to_documents, split_texts
 
 
 

@@ -32,13 +32,22 @@ import sys
 # Add parent directory to path for direct execution
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils.loader_modules import (
-    preprocessing,
-    split_texts,
-    to_documents,
-    ocr_with_gpt,
-    ocr_pdf_with_gpt,
-)
+try:
+    from utils.loader_modules import (
+        preprocessing,
+        split_texts,
+        to_documents,
+        ocr_with_gpt,
+        ocr_pdf_with_gpt,
+    )
+except ModuleNotFoundError:
+    from src.utils.loader_modules import (
+        preprocessing,
+        split_texts,
+        to_documents,
+        ocr_with_gpt,
+        ocr_pdf_with_gpt,
+    )
 # from image_util import ImageUtil
 import logging
 

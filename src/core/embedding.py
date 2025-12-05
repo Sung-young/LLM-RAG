@@ -2,6 +2,7 @@ import os
 import io
 import logging
 import torch
+from datetime import datetime
 from tqdm import tqdm
 from src.handler.document_loader import CustomDocumentLoader
 from src.handler.hybrid_llm_document_loader import HybridLLMPdfLoader
@@ -29,16 +30,34 @@ def append_to_vectorstore(input_path: str, index_path: str = "faiss_index", batc
 
     # 폴더/파일 탐색
     file_list = []
+    skipped_count = 0
     if os.path.isdir(input_path):
         for root, _, files in os.walk(input_path):
             for file in files:
+                # macOS 메타데이터 파일 필터링 (._로 시작하는 파일)
+                if file.startswith("._") or file.startswith(".DS_Store"):
+                    skipped_count += 1
+                    continue
+                # 숨김 파일 필터링 (점으로 시작하는 파일)
+                if file.startswith("."):
+                    skipped_count += 1
+                    continue
                 if file.lower().endswith((".pdf", ".xlsx", ".xls", ".txt", ".csv", ".docx")):
                     file_list.append(os.path.join(root, file))
     elif os.path.isfile(input_path):
-        file_list.append(input_path)
+        # 단일 파일인 경우에도 메타데이터 파일 체크
+        basename = os.path.basename(input_path)
+        if not (basename.startswith("._") or basename.startswith(".DS_Store") or basename.startswith(".")):
+            file_list.append(input_path)
+        else:
+            logging.error(f"메타데이터 파일은 처리할 수 없습니다: {input_path}")
+            return
     else:
         logging.error(f"유효하지 않은 경로입니다: {input_path}")
         return
+    
+    if skipped_count > 0:
+        logging.info(f"메타데이터/숨김 파일 {skipped_count}개를 제외했습니다.")
 
     if not file_list:
         logging.warning("처리할 파일이 없습니다.")
@@ -66,9 +85,13 @@ def append_to_vectorstore(input_path: str, index_path: str = "faiss_index", batc
         logging.info("새로 추가할 파일이 없습니다. 모든 파일이 이미 임베딩되어 있습니다.")
         return
 
-    logging.info(f"새로 임베딩할 파일 {len(new_files)}개: {new_files}")
+    logging.info(f"새로 임베딩할 파일 {len(new_files)}개를 처리합니다.")
 
     # 새 파일 임베딩
+    success_count = 0
+    error_count = 0
+    error_files = []
+    
     for path in tqdm(new_files, desc="새 문서 로딩 중"):
         try:
             with open(path, "rb") as f:
@@ -76,9 +99,46 @@ def append_to_vectorstore(input_path: str, index_path: str = "faiss_index", batc
             # loader = CustomDocumentLoader(file_path=path,file=file_bytes, file_name=path)
             loader = HybridLLMPdfLoader(file_path=path,file=file_bytes, file_name=path)
             docs = loader.load()
-            all_documents.extend(docs)
+            if docs:  # 문서가 실제로 생성된 경우만 성공으로 카운트
+                all_documents.extend(docs)
+                success_count += 1
+            else:
+                # 빈 문서 리스트는 손상된 PDF로 간주
+                error_count += 1
+                error_files.append(path)
+                logging.warning(f"⚠️ 파일에서 문서를 추출하지 못했습니다 (손상된 PDF 가능): {os.path.basename(path)}")
         except Exception as e:
-            logging.error(f"{path} 처리 중 오류 발생: {e}")
+            error_count += 1
+            error_files.append(path)
+            logging.error(f"❌ {os.path.basename(path)} 처리 중 오류: {str(e)[:100]}")
+
+    # 처리 결과 요약 및 오류 파일 저장
+    logging.info(f"✅ 처리 완료 - 성공: {success_count}개, 실패/건너뜀: {error_count}개")
+    if error_files:
+        logging.warning(f"⚠️ 처리되지 않은 파일 {len(error_files)}개 (손상된 PDF 등)")
+        if len(error_files) <= 10:  # 10개 이하면 모두 출력
+            for err_file in error_files:
+                logging.warning(f"   - {os.path.basename(err_file)}")
+        else:  # 10개 초과면 처음 10개만 출력
+            for err_file in error_files[:10]:
+                logging.warning(f"   - {os.path.basename(err_file)}")
+            logging.warning(f"   ... 외 {len(error_files) - 10}개")
+        
+        # 처리되지 않은 파일 목록을 텍스트 파일에 저장
+        error_log_path = os.path.join(index_path, "failed_files.txt")
+        try:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with open(error_log_path, "a", encoding="utf-8") as f:
+                f.write(f"\n{'='*80}\n")
+                f.write(f"처리 일시: {timestamp}\n")
+                f.write(f"처리되지 않은 파일 수: {len(error_files)}개\n")
+                f.write(f"{'='*80}\n")
+                for err_file in error_files:
+                    # 전체 경로와 파일명 모두 저장
+                    f.write(f"{err_file}\n")
+            logging.info(f"📝 처리되지 않은 파일 목록이 '{error_log_path}'에 저장되었습니다.")
+        except Exception as e:
+            logging.error(f"오류 파일 목록 저장 실패: {e}")
 
     if not all_documents:
         logging.warning("새 문서가 없습니다.")
@@ -105,5 +165,5 @@ def append_to_vectorstore(input_path: str, index_path: str = "faiss_index", batc
 
 
 if __name__ == "__main__":
-    input_folder = "data"  
-    append_to_vectorstore(input_folder, index_path="vectordb", batch_size=16)
+    input_folder = "failed_files/b"  
+    append_to_vectorstore(input_folder, index_path="vectordb-failed-files-b", batch_size=16)
