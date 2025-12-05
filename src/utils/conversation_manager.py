@@ -38,6 +38,10 @@ class ConversationManager:
     
     def add_message(self, session_id: str, role: str, content: str):
         """대화 메시지 추가 (role: 'user' or 'assistant')"""
+        # 써로게이트 문자 등 인코딩 불가능한 문자 처리
+        if content:
+            content = content.encode('utf-8', 'replace').decode('utf-8')
+
         message = {
             "role": role,
             "content": content,
