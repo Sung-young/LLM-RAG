@@ -244,8 +244,13 @@ class HybridLLMPdfLoader(BaseLoader):
 
         return iou > threshold
 
-    def _split_pdf_by_pages(self, pdf_bytes: bytes) -> list[bytes]:
-        """PDF를 페이지별로 분할하여 각 페이지를 개별 PDF 바이트로 반환"""
+    def _split_pdf_by_pages(self, pdf_bytes: bytes) -> tuple[list[bytes], bool]:
+        """
+        PDF를 페이지별로 분할하여 각 페이지를 개별 PDF 바이트로 반환
+        
+        Returns:
+            tuple[list[bytes], bool]: (페이지 바이트 리스트, 성공 여부)
+        """
         try:
             pdf_reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
             page_pdfs = []
@@ -259,11 +264,11 @@ class HybridLLMPdfLoader(BaseLoader):
                 page_pdfs.append(page_bytes.getvalue())
 
             logger.info(f"PDF를 {len(page_pdfs)}개 페이지로 분할 완료")
-            return page_pdfs
+            return page_pdfs, True
 
         except Exception as e:
             logger.error(f"PDF 페이지 분할 실패: {str(e)}")
-            return [pdf_bytes]
+            return [], False
 
     def _llm_parse_page(self, page_pdf_bytes: bytes, page_num: int) -> str:
         """
@@ -378,7 +383,7 @@ class HybridLLMPdfLoader(BaseLoader):
         이제 주어진 이미지에서 모든 텍스트를 완전히 추출하세요. 한 글자도 놓치지 마세요.
             """
 
-            logger.info(f"페이지 {page_num} LLM 파싱 시작...")
+            # logger.info(f"페이지 {page_num} LLM 파싱 시작...")
 
             # AWS Bedrock은 PDF 직접 전송을 지원하지 않으므로
             # PDF를 이미지로 변환하여 전송
@@ -416,8 +421,8 @@ class HybridLLMPdfLoader(BaseLoader):
                 else:
                     extracted_text = str(response)
 
-                logger.info(
-                    f"페이지 {page_num} LLM 파싱 완료 (추출된 텍스트 길이: {len(extracted_text)}자)")
+                # logger.info(
+                #     f"페이지 {page_num} LLM 파싱 완료 (추출된 텍스트 길이: {len(extracted_text)}자)")
                 return extracted_text
             
             finally:
@@ -450,7 +455,7 @@ class HybridLLMPdfLoader(BaseLoader):
         # PDF 바이트 읽기 (LLM 처리용)
         with open(file_path, "rb") as f:
             pdf_bytes = f.read()
-        page_pdf_list = self._split_pdf_by_pages(pdf_bytes)
+        page_pdf_list, split_success = self._split_pdf_by_pages(pdf_bytes)
 
         try:
             try:
@@ -460,6 +465,20 @@ class HybridLLMPdfLoader(BaseLoader):
                 return []
 
             total_pages = len(pdf.pages)
+            
+            # PDF 페이지 분할 실패 확인
+            if not split_success:
+                logger.error(f"PDF 페이지 분할 실패로 파일 건너뜀 (손상된 PDF 가능)")
+                return []
+            
+            # 페이지 수 불일치 확인 (손상된 PDF 감지)
+            if len(page_pdf_list) != total_pages:
+                logger.error(
+                    f"페이지 수 불일치 감지 "
+                    f"(plumber: {total_pages}, 분할: {len(page_pdf_list)}) → 파일 건너뜀"
+                )
+                return []
+            
             logger.info(f"총 {total_pages}페이지 처리 시작")
 
             for i in range(1, total_pages + 1):
@@ -508,13 +527,13 @@ class HybridLLMPdfLoader(BaseLoader):
                         logger.debug(f"페이지 {i}: lattice 방식 실패 - {str(e)}")
 
                     table_count = len(tables_on_page)
-                    logger.info(
-                        f"페이지 {i}: 테이블 {table_count}개 발견 (lattice: {lattice_count})")
+                    # logger.info(
+                    #     f"페이지 {i}: 테이블 {table_count}개 발견 (lattice: {lattice_count})")
 
                     # 2단계: 테이블 개수에 따라 분기 처리
                     if table_count >= 2:
                         # 테이블 2개 이상 → LLM 처리
-                        logger.info(f"페이지 {i}: 테이블 2개 이상 → LLM으로 처리")
+                        # logger.info(f"페이지 {i}: 테이블 2개 이상 → LLM으로 처리")
 
                         page_pdf_bytes = page_pdf_list[i - 1]
                         extracted_text = self._llm_parse_page(
@@ -539,15 +558,15 @@ class HybridLLMPdfLoader(BaseLoader):
                                 })
 
                             all_docs.extend(new_docs)
-                            logger.info(
-                                f"페이지 {i} LLM 처리 완료 - 청크 수: {len(text_chunks)}")
+                            # logger.info(
+                            #     f"페이지 {i} LLM 처리 완료 - 청크 수: {len(text_chunks)}")
                         else:
                             logger.warning(f"페이지 {i} LLM 추출 결과가 비어있음")
 
                     else:
                         # 테이블 0~1개 → pdfplumber 방식
-                        logger.info(
-                            f"페이지 {i}: 테이블 {table_count}개 → pdfplumber로 처리")
+                        # logger.info(
+                        #     f"페이지 {i}: 테이블 {table_count}개 → pdfplumber로 처리")
 
                         page_content_items = []
                         extract_mode_suffix = ""
